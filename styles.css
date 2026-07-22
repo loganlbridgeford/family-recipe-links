@@ -1,0 +1,184 @@
+/* Bridgeford Family Recipe Links - Styles */
+
+:root {
+  --primary: #2c5530;
+  --primary-light: #3e7a45;
+  --bg: #f7f5f0;
+  --card: #ffffff;
+  --text: #1a1a1a;
+  --text-muted: #666;
+  --border: #e0dcd3;
+  --radius: 12px;
+  --shadow: 0 2px 10px rgba(0,0,0,0.06);
+}
+
+* {
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0;
+}
+
+body {
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+  background: var(--bg);
+  color: var(--text);
+  line-height: 1.5;
+  padding: 16px;
+  min-height: 100dvh;
+}
+
+.container {
+  max-width: 680px;
+  margin: 0 auto;
+}
+
+header {
+  text-align: center;
+  margin-bottom: 28px;
+  padding-top: 12px;
+}
+
+header h1 {
+  font-size: 1.6rem;
+  color: var(--primary);
+  margin-bottom: 4px;
+}
+
+.subtitle {
+  color: var(--text-muted);
+  font-size: 0.95rem;
+}
+
+/* Form */
+.add-form {
+  background: var(--card);
+  border-radius: var(--radius);
+  padding: 20px;
+  box-shadow: var(--shadow);
+  margin-bottom: 28px;
+}
+
+.add-form h2 {
+  font-size: 1.15rem;
+  margin-bottom: 16px;
+  color: var(--primary);
+}
+
+.form-group {
+  margin-bottom: 14px;
+}
+
+.form-group label {
+  display: block;
+  font-weight: 600;
+  font-size: 0.9rem;
+  margin-bottom: 5px;
+}
+
+.form-group input,
+.form-group select,
+.form-group textarea {
+  width: 100%;
+  padding: 11px 12px;
+  border: 2px solid var(--border);
+  border-radius: 8px;
+  font-size: 1rem;
+  font-family: inherit;
+  background: #fff;
+}
+
+.form-group input:focus,
+.form-group select:focus,
+.form-group textarea:focus {
+  outline: none;
+  border-color: var(--primary);
+}
+
+.btn-primary {
+  width: 100%;
+  padding: 13px;
+  background: var(--primary);
+  color: white;
+  border: none;
+  border-radius: 8px;
+  font-size: 1rem;
+  font-weight: 600;
+  cursor: pointer;
+  margin-top: 6px;
+}
+
+.btn-primary:hover {
+  background: var(--primary-light);
+}
+
+.btn-primary:active {
+  transform: scale(0.98);
+}
+
+/* Recipe List */
+.recipe-list h2 {
+  font-size: 1.15rem;
+  color: var(--primary);
+  margin-bottom: 14px;
+}
+
+#recipeCount {
+  font-weight: 500;
+  color: var(--text-muted);
+  font-size: 0.95rem;
+}
+
+.recipe-card {
+  background: var(--card);
+  border-radius: var(--radius);
+  padding: 16px;
+  margin-bottom: 12px;
+  box-shadow: var(--shadow);
+  border-left: 4px solid var(--primary);
+}
+
+.recipe-card h3 {
+  font-size: 1.05rem;
+  margin-bottom: 6px;
+}
+
+.recipe-card h3 a {
+  color: var(--primary);
+  text-decoration: none;
+}
+
+.recipe-card h3 a:hover {
+  text-decoration: underline;
+}
+
+.recipe-meta {
+  font-size: 0.85rem;
+  color: var(--text-muted);
+  margin-bottom: 6px;
+}
+
+.recipe-notes {
+  font-size: 0.9rem;
+  color: var(--text);
+  margin-top: 6px;
+  white-space: pre-wrap;
+}
+
+.empty-state {
+  text-align: center;
+  padding: 40px 20px;
+  color: var(--text-muted);
+  background: var(--card);
+  border-radius: var(--radius);
+}
+
+/* Mobile adjustments */
+@media (max-width: 480px) {
+  body {
+    padding: 12px;
+  }
+  
+  header h1 {
+    font-size: 1.4rem;
+  }
+}

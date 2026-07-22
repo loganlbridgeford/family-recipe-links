@@ -1,0 +1,71 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Bridgeford Family Recipe Links</title>
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+  <div class="container">
+    <header>
+      <h1>Bridgeford Family Recipe Links</h1>
+      <p class="subtitle">Shared recipes from the Bridgeford, Nelson & Morrison families</p>
+    </header>
+
+    <!-- Add Recipe Form -->
+    <section class="add-form">
+      <h2>Add a Recipe</h2>
+      <form id="recipeForm">
+        <div class="form-group">
+          <label for="recipeName">Recipe Name</label>
+          <input type="text" id="recipeName" placeholder="e.g. Grandma's Chili" required>
+        </div>
+
+        <div class="form-group">
+          <label for="recipeUrl">Recipe URL</label>
+          <input type="url" id="recipeUrl" placeholder="https://..." required>
+        </div>
+
+        <div class="form-group">
+          <label for="addedBy">Added by</label>
+          <select id="addedBy" required>
+            <option value="">Select who is adding this</option>
+            <optgroup label="Bridgeford">
+              <option value="Logan">Logan</option>
+              <option value="Nadine">Nadine</option>
+            </optgroup>
+            <optgroup label="Nelson">
+              <option value="John C.">John C.</option>
+              <option value="Neileen">Neileen</option>
+              <option value="John A.">John A.</option>
+              <option value="Abbie">Abbie</option>
+            </optgroup>
+            <optgroup label="Morrison">
+              <option value="Tyler">Tyler</option>
+              <option value="Monica">Monica</option>
+            </optgroup>
+          </select>
+        </div>
+
+        <div class="form-group">
+          <label for="notes">Notes (optional)</label>
+          <textarea id="notes" rows="2" placeholder="Any tips, what you liked, etc."></textarea>
+        </div>
+
+        <button type="submit" class="btn-primary">Add Recipe</button>
+      </form>
+    </section>
+
+    <!-- Recipe List -->
+    <section class="recipe-list">
+      <h2>Family Recipes <span id="recipeCount"></span></h2>
+      <div id="recipesContainer">
+        <!-- Recipes will appear here -->
+      </div>
+    </section>
+  </div>
+
+  <script src="app.js"></script>
+</body>
+</html>
