@@ -1,15 +1,16 @@
-/* Bridgeford Family Recipe Links - Styles */
+/* Bridgeford Family Recipe Links - Warm Green Theme */
 
 :root {
-  --primary: #2c5530;
-  --primary-light: #3e7a45;
-  --bg: #f7f5f0;
+  --primary: #2f5d34;
+  --primary-light: #3f7a46;
+  --primary-dark: #1e3d22;
+  --bg: #f4f1ea;
   --card: #ffffff;
-  --text: #1a1a1a;
-  --text-muted: #666;
-  --border: #e0dcd3;
-  --radius: 12px;
-  --shadow: 0 2px 10px rgba(0,0,0,0.06);
+  --text: #1c1c1c;
+  --text-muted: #5c5c5c;
+  --border: #d9d3c7;
+  --radius: 14px;
+  --shadow: 0 4px 16px rgba(0,0,0,0.08);
 }
 
 * {
@@ -23,37 +24,82 @@ body {
   background: var(--bg);
   color: var(--text);
   line-height: 1.5;
-  padding: 16px;
   min-height: 100dvh;
+  position: relative;
+}
+
+/* Soft food background */
+.page-bg {
+  position: fixed;
+  inset: 0;
+  background-image: url('food-bg.jpg');
+  background-size: cover;
+  background-position: center;
+  opacity: 0.28;
+  z-index: -1;
+  pointer-events: none;
+}
+
+.page-bg::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background: rgba(20, 40, 25, 0.25);
 }
 
 .container {
   max-width: 680px;
   margin: 0 auto;
+  padding: 16px;
+  padding-bottom: 40px;
 }
 
-header {
-  text-align: center;
-  margin-bottom: 28px;
-  padding-top: 12px;
+/* Family Banner */
+.family-banner {
+  position: relative;
+  height: 220px;
+  border-radius: var(--radius);
+  overflow: hidden;
+  margin-bottom: 24px;
+  box-shadow: var(--shadow);
 }
 
-header h1 {
-  font-size: 1.6rem;
-  color: var(--primary);
-  margin-bottom: 4px;
+.family-photo {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  object-position: center 20%;
+  display: block;
 }
 
-.subtitle {
-  color: var(--text-muted);
-  font-size: 0.95rem;
+.banner-overlay {
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(to top, rgba(30, 61, 34, 0.75) 0%, rgba(30, 61, 34, 0.25) 50%, transparent 100%);
+  display: flex;
+  flex-direction: column;
+  justify-content: flex-end;
+  padding: 18px 20px;
+  color: white;
+}
+
+.banner-overlay h1 {
+  font-size: 1.5rem;
+  font-weight: 700;
+  margin-bottom: 2px;
+  text-shadow: 0 1px 3px rgba(0,0,0,0.3);
+}
+
+.banner-overlay .subtitle {
+  font-size: 0.9rem;
+  opacity: 0.9;
 }
 
 /* Form */
 .add-form {
   background: var(--card);
   border-radius: var(--radius);
-  padding: 20px;
+  padding: 22px;
   box-shadow: var(--shadow);
   margin-bottom: 28px;
 }
@@ -79,12 +125,13 @@ header h1 {
 .form-group select,
 .form-group textarea {
   width: 100%;
-  padding: 11px 12px;
+  padding: 12px 13px;
   border: 2px solid var(--border);
-  border-radius: 8px;
+  border-radius: 10px;
   font-size: 1rem;
   font-family: inherit;
   background: #fff;
+  transition: border-color 0.15s;
 }
 
 .form-group input:focus,
@@ -96,15 +143,16 @@ header h1 {
 
 .btn-primary {
   width: 100%;
-  padding: 13px;
+  padding: 14px;
   background: var(--primary);
   color: white;
   border: none;
-  border-radius: 8px;
-  font-size: 1rem;
+  border-radius: 10px;
+  font-size: 1.05rem;
   font-weight: 600;
   cursor: pointer;
   margin-top: 6px;
+  transition: background 0.15s, transform 0.1s;
 }
 
 .btn-primary:hover {
@@ -131,10 +179,10 @@ header h1 {
 .recipe-card {
   background: var(--card);
   border-radius: var(--radius);
-  padding: 16px;
+  padding: 16px 18px;
   margin-bottom: 12px;
   box-shadow: var(--shadow);
-  border-left: 4px solid var(--primary);
+  border-left: 5px solid var(--primary);
 }
 
 .recipe-card h3 {
@@ -143,11 +191,12 @@ header h1 {
 }
 
 .recipe-card h3 a {
-  color: var(--primary);
+  color: var(--primary-dark);
   text-decoration: none;
 }
 
 .recipe-card h3 a:hover {
+  color: var(--primary);
   text-decoration: underline;
 }
 
@@ -170,15 +219,20 @@ header h1 {
   color: var(--text-muted);
   background: var(--card);
   border-radius: var(--radius);
+  box-shadow: var(--shadow);
 }
 
-/* Mobile adjustments */
+/* Mobile */
 @media (max-width: 480px) {
-  body {
+  .container {
     padding: 12px;
   }
-  
-  header h1 {
-    font-size: 1.4rem;
+
+  .family-banner {
+    height: 190px;
+  }
+
+  .banner-overlay h1 {
+    font-size: 1.3rem;
   }
 }
