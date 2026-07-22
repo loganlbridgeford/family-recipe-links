@@ -15,7 +15,7 @@
       <img src="family.jpg" alt="Bridgeford Family" class="family-photo">
       <div class="banner-overlay">
         <h1>Bridgeford Family Recipe Links</h1>
-        <p class="subtitle">Shared recipes from the Bridgeford, Nelson & Morrison families</p>
+        <p class="subtitle">Shared recipes from the family</p>
       </div>
     </div>
 
@@ -33,25 +33,35 @@
           <input type="url" id="recipeUrl" placeholder="https://..." required>
         </div>
 
-        <div class="form-group">
-          <label for="addedBy">Added by</label>
-          <select id="addedBy" required>
-            <option value="">Select who is adding this</option>
-            <optgroup label="Bridgeford">
+        <div class="form-row">
+          <div class="form-group">
+            <label for="category">Category</label>
+            <select id="category" required>
+              <option value="">Select category</option>
+              <option value="Breakfast">Breakfast</option>
+              <option value="Lunch">Lunch</option>
+              <option value="Dinner">Dinner</option>
+              <option value="Appetizer">Appetizer</option>
+              <option value="Dessert">Dessert</option>
+              <option value="Snack">Snack</option>
+              <option value="Other">Other</option>
+            </select>
+          </div>
+
+          <div class="form-group">
+            <label for="addedBy">Added by</label>
+            <select id="addedBy" required>
+              <option value="">Select who</option>
               <option value="Logan">Logan</option>
               <option value="Nadine">Nadine</option>
-            </optgroup>
-            <optgroup label="Nelson">
               <option value="John C.">John C.</option>
               <option value="Neileen">Neileen</option>
               <option value="John A.">John A.</option>
               <option value="Abbie">Abbie</option>
-            </optgroup>
-            <optgroup label="Morrison">
               <option value="Tyler">Tyler</option>
               <option value="Monica">Monica</option>
-            </optgroup>
-          </select>
+            </select>
+          </div>
         </div>
 
         <div class="form-group">
@@ -63,11 +73,27 @@
       </form>
     </section>
 
+    <!-- Search + Filters -->
+    <section class="controls">
+      <input type="search" id="searchInput" placeholder="Search recipes, people, or URLs…">
+      
+      <div class="filter-chips" id="filterChips">
+        <button type="button" class="chip active" data-category="All">All</button>
+        <button type="button" class="chip" data-category="Breakfast">Breakfast</button>
+        <button type="button" class="chip" data-category="Lunch">Lunch</button>
+        <button type="button" class="chip" data-category="Dinner">Dinner</button>
+        <button type="button" class="chip" data-category="Appetizer">Appetizer</button>
+        <button type="button" class="chip" data-category="Dessert">Dessert</button>
+        <button type="button" class="chip" data-category="Snack">Snack</button>
+        <button type="button" class="chip" data-category="Other">Other</button>
+      </div>
+    </section>
+
     <!-- Recipe List -->
     <section class="recipe-list">
       <h2>Family Recipes <span id="recipeCount"></span></h2>
       <div id="recipesContainer">
-        <!-- Recipes will appear here -->
+        <!-- Recipes appear here -->
       </div>
     </section>
   </div>
