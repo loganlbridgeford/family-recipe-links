@@ -1,46 +1,58 @@
-// Bridgeford Family Recipe Links
-// Connected to Google Sheet
+// Family Recipe Links - Supabase version
 
-const SCRIPT_URL = "https://script.google.com/macros/s/AKfycbzlSno8NMMR15vC-j7XdbURig48FgVgh_uhIf0W6h1QFkDcEVFpxUbSi5jlcIZWZ7_gFg/exec";
+const SUPABASE_URL = "https://tthmojfercxemrqghbfm.supabase.co";
+const SUPABASE_ANON_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InR0aG1vamZlcmN4ZW1ycWdoYmZtIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODQ4NTU0NDYsImV4cCI6MjEwMDQzMTQ0Nn0.QxtgLYQHpC-0KYuGGk6rzQcovY3drlXCSgIMeUNS3lY";
+
+const supabase = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
 
 let allRecipes = [];
 let currentCategory = "All";
 let currentSearch = "";
 
+// Get all recipes
 async function getRecipes() {
   try {
-    const response = await fetch(SCRIPT_URL);
-    if (!response.ok) throw new Error("Failed to load");
-    const data = await response.json();
-    return Array.isArray(data) ? data : [];
+    const { data, error } = await supabase
+      .from("recipes")
+      .select("*")
+      .order("name", { ascending: true });
+
+    if (error) throw error;
+    return data || [];
   } catch (err) {
-    console.error(err);
+    console.error("Error loading recipes:", err);
     return [];
   }
 }
 
+// Add a recipe
 async function addRecipe(recipe) {
   try {
-    const response = await fetch(SCRIPT_URL, {
-      method: "POST",
-      body: JSON.stringify(recipe)
-    });
-    return await response.json();
+    const { data, error } = await supabase
+      .from("recipes")
+      .insert([recipe])
+      .select();
+
+    if (error) throw error;
+    return { success: true, data };
   } catch (err) {
-    console.error(err);
-    return { success: false };
+    console.error("Error adding recipe:", err);
+    return { success: false, error: err.message };
   }
 }
 
+// Delete a recipe
 async function deleteRecipe(id) {
   try {
-    const response = await fetch(SCRIPT_URL, {
-      method: "POST",
-      body: JSON.stringify({ action: "delete", id })
-    });
-    return await response.json();
+    const { error } = await supabase
+      .from("recipes")
+      .delete()
+      .eq("id", id);
+
+    if (error) throw error;
+    return { success: true };
   } catch (err) {
-    console.error(err);
+    console.error("Error deleting recipe:", err);
     return { success: false };
   }
 }
@@ -64,24 +76,19 @@ function escapeHtml(text) {
 function getFilteredRecipes() {
   let list = [...allRecipes];
 
-  // Category filter
   if (currentCategory !== "All") {
     list = list.filter(r => (r.category || "Other") === currentCategory);
   }
 
-  // Search filter
   if (currentSearch) {
     const q = currentSearch.toLowerCase();
     list = list.filter(r =>
       (r.name || "").toLowerCase().includes(q) ||
       (r.url || "").toLowerCase().includes(q) ||
-      (r.addedBy || "").toLowerCase().includes(q) ||
+      (r.added_by || "").toLowerCase().includes(q) ||
       (r.notes || "").toLowerCase().includes(q)
     );
   }
-
-  // Alphabetical by name
-  list.sort((a, b) => (a.name || "").localeCompare(b.name || "", undefined, { sensitivity: "base" }));
 
   return list;
 }
@@ -108,18 +115,18 @@ function renderRecipes() {
       <button class="delete-btn" data-id="${escapeHtml(recipe.id)}" title="Delete recipe">×</button>
       <div class="recipe-category">${escapeHtml(recipe.category || "Other")}</div>
       <h3>
-        <a href="${escapeHtml(recipe.url)}" target="_blank" rel="noopener">
-          ${escapeHtml(recipe.name)}
-        </a>
+        ${recipe.url 
+          ? `<a href="${escapeHtml(recipe.url)}" target="_blank" rel="noopener">${escapeHtml(recipe.name)}</a>` 
+          : escapeHtml(recipe.name)}
       </h3>
       <div class="recipe-meta">
-        Added by <strong>${escapeHtml(recipe.addedBy)}</strong> · ${formatDate(recipe.dateAdded)}
+        Added by <strong>${escapeHtml(recipe.added_by)}</strong> · ${formatDate(recipe.created_at)}
       </div>
       ${recipe.notes ? `<div class="recipe-notes">${escapeHtml(recipe.notes)}</div>` : ""}
     </div>
   `).join("");
 
-  // Attach delete handlers
+  // Delete buttons
   container.querySelectorAll(".delete-btn").forEach(btn => {
     btn.addEventListener("click", async () => {
       const id = btn.dataset.id;
@@ -155,8 +162,8 @@ document.getElementById("recipeForm").addEventListener("submit", async function 
   const addedBy = document.getElementById("addedBy").value;
   const notes = document.getElementById("notes").value.trim();
 
-  if (!name || !url || !category || !addedBy) {
-    alert("Please fill in all required fields.");
+  if (!name || !category || !addedBy) {
+    alert("Please fill in Recipe Name, Category, and Added by.");
     return;
   }
 
@@ -165,13 +172,11 @@ document.getElementById("recipeForm").addEventListener("submit", async function 
   submitBtn.textContent = "Adding…";
 
   const newRecipe = {
-    id: Date.now().toString(),
     name,
-    url,
+    url: url || null,
     category,
-    addedBy,
-    notes,
-    dateAdded: new Date().toISOString()
+    added_by: addedBy,
+    notes: notes || null
   };
 
   const result = await addRecipe(newRecipe);
@@ -181,8 +186,7 @@ document.getElementById("recipeForm").addEventListener("submit", async function 
 
   if (result.success) {
     document.getElementById("recipeForm").reset();
-    allRecipes.push(newRecipe);
-    renderRecipes();
+    await loadRecipes();
   } else {
     alert("Could not add recipe. Please try again.");
   }
@@ -197,12 +201,11 @@ document.getElementById("searchInput").addEventListener("input", (e) => {
 // Category chips
 document.getElementById("filterChips").addEventListener("click", (e) => {
   if (!e.target.classList.contains("chip")) return;
-
   document.querySelectorAll(".chip").forEach(c => c.classList.remove("active"));
   e.target.classList.add("active");
   currentCategory = e.target.dataset.category;
   renderRecipes();
 });
 
-// Initial load
+// Start
 document.addEventListener("DOMContentLoaded", loadRecipes);
