@@ -3,7 +3,7 @@
 const SUPABASE_URL = "https://tthmojfercxemrqghbfm.supabase.co";
 const SUPABASE_ANON_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InR0aG1vamZlcmN4ZW1ycWdoYmZtIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODQ4NTU0NDYsImV4cCI6MjEwMDQzMTQ0Nn0.QxtgLYQHpC-0KYuGGk6rzQcovY3drlXCSgIMeUNS3lY";
 
-const supabase = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+const supabaseClient = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
 
 let allRecipes = [];
 let currentCategory = "All";
@@ -12,7 +12,7 @@ let currentSearch = "";
 // Get all recipes
 async function getRecipes() {
   try {
-    const { data, error } = await supabase
+    const { data, error } = await supabaseClient
       .from("recipes")
       .select("*")
       .order("name", { ascending: true });
@@ -28,7 +28,7 @@ async function getRecipes() {
 // Add a recipe
 async function addRecipe(recipe) {
   try {
-    const { data, error } = await supabase
+    const { data, error } = await supabaseClient
       .from("recipes")
       .insert([recipe])
       .select();
@@ -44,7 +44,7 @@ async function addRecipe(recipe) {
 // Delete a recipe
 async function deleteRecipe(id) {
   try {
-    const { error } = await supabase
+    const { error } = await supabaseClient
       .from("recipes")
       .delete()
       .eq("id", id);
