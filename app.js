@@ -1,4 +1,4 @@
-// Family Recipe Links - Supabase version
+// Family Recipe Links - Supabase version (with photo upload)
 
 const SUPABASE_URL = "https://tthmojfercxemrqghbfm.supabase.co";
 const SUPABASE_ANON_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InR0aG1vamZlcmN4ZW1ycWdoYmZtIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODQ4NTU0NDYsImV4cCI6MjEwMDQzMTQ0Nn0.QxtgLYQHpC-0KYuGGk6rzQcovY3drlXCSgIMeUNS3lY";
@@ -25,12 +25,36 @@ async function getRecipes() {
   }
 }
 
-// Add a recipe
-async function addRecipe(recipe) {
+// Add a recipe (with optional photo)
+async function addRecipe(recipe, file) {
   try {
+    let photoUrl = null;
+
+    // Upload photo if one was selected
+    if (file) {
+      const fileExt = file.name.split('.').pop();
+      const fileName = `${Date.now()}.${fileExt}`;
+
+      const { error: uploadError } = await supabaseClient
+        .storage
+        .from('recipe-photos')
+        .upload(fileName, file);
+
+      if (uploadError) throw uploadError;
+
+      // Get the public URL
+      const { data: urlData } = supabaseClient
+        .storage
+        .from('recipe-photos')
+        .getPublicUrl(fileName);
+
+      photoUrl = urlData.publicUrl;
+    }
+
+    // Save the recipe
     const { data, error } = await supabaseClient
       .from("recipes")
-      .insert([recipe])
+      .insert([{ ...recipe, photo_url: photoUrl }])
       .select();
 
     if (error) throw error;
@@ -123,6 +147,13 @@ function renderRecipes() {
         Added by <strong>${escapeHtml(recipe.added_by)}</strong> · ${formatDate(recipe.created_at)}
       </div>
       ${recipe.notes ? `<div class="recipe-notes">${escapeHtml(recipe.notes)}</div>` : ""}
+      ${recipe.photo_url ? `
+        <div style="margin-top: 10px;">
+          <a href="${escapeHtml(recipe.photo_url)}" target="_blank" rel="noopener">
+            <img src="${escapeHtml(recipe.photo_url)}" alt="Recipe card" style="max-width: 120px; border-radius: 8px; border: 1px solid #ddd;">
+          </a>
+        </div>
+      ` : ""}
     </div>
   `).join("");
 
@@ -161,6 +192,8 @@ document.getElementById("recipeForm").addEventListener("submit", async function 
   const category = document.getElementById("category").value;
   const addedBy = document.getElementById("addedBy").value;
   const notes = document.getElementById("notes").value.trim();
+  const photoInput = document.getElementById("photo");
+  const file = photoInput.files[0];
 
   if (!name || !category || !addedBy) {
     alert("Please fill in Recipe Name, Category, and Added by.");
@@ -179,7 +212,7 @@ document.getElementById("recipeForm").addEventListener("submit", async function 
     notes: notes || null
   };
 
-  const result = await addRecipe(newRecipe);
+  const result = await addRecipe(newRecipe, file);
 
   submitBtn.disabled = false;
   submitBtn.textContent = "Add Recipe";
