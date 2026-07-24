@@ -1,4 +1,4 @@
-// Family Recipe Links - Supabase version (with photo upload)
+// Family Recipe Links - Supabase version (Front + Back photos)
 
 const SUPABASE_URL = "https://tthmojfercxemrqghbfm.supabase.co";
 const SUPABASE_ANON_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InR0aG1vamZlcmN4ZW1ycWdoYmZtIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODQ4NTU0NDYsImV4cCI6MjEwMDQzMTQ0Nn0.QxtgLYQHpC-0KYuGGk6rzQcovY3drlXCSgIMeUNS3lY";
@@ -9,7 +9,6 @@ let allRecipes = [];
 let currentCategory = "All";
 let currentSearch = "";
 
-// Get all recipes
 async function getRecipes() {
   try {
     const { data, error } = await supabaseClient
@@ -25,36 +24,39 @@ async function getRecipes() {
   }
 }
 
-// Add a recipe (with optional photo)
-async function addRecipe(recipe, file) {
+async function uploadPhoto(file) {
+  if (!file) return null;
+
+  const fileExt = file.name.split('.').pop();
+  const fileName = `${Date.now()}-${Math.random().toString(36).substring(2)}.${fileExt}`;
+
+  const { error: uploadError } = await supabaseClient
+    .storage
+    .from('recipe-photos')
+    .upload(fileName, file);
+
+  if (uploadError) throw uploadError;
+
+  const { data: urlData } = supabaseClient
+    .storage
+    .from('recipe-photos')
+    .getPublicUrl(fileName);
+
+  return urlData.publicUrl;
+}
+
+async function addRecipe(recipe, frontFile, backFile) {
   try {
-    let photoUrl = null;
+    const photoUrl = await uploadPhoto(frontFile);
+    const photoUrlBack = await uploadPhoto(backFile);
 
-    // Upload photo if one was selected
-    if (file) {
-      const fileExt = file.name.split('.').pop();
-      const fileName = `${Date.now()}.${fileExt}`;
-
-      const { error: uploadError } = await supabaseClient
-        .storage
-        .from('recipe-photos')
-        .upload(fileName, file);
-
-      if (uploadError) throw uploadError;
-
-      // Get the public URL
-      const { data: urlData } = supabaseClient
-        .storage
-        .from('recipe-photos')
-        .getPublicUrl(fileName);
-
-      photoUrl = urlData.publicUrl;
-    }
-
-    // Save the recipe
     const { data, error } = await supabaseClient
       .from("recipes")
-      .insert([{ ...recipe, photo_url: photoUrl }])
+      .insert([{
+        ...recipe,
+        photo_url: photoUrl,
+        photo_url_back: photoUrlBack
+      }])
       .select();
 
     if (error) throw error;
@@ -65,7 +67,6 @@ async function addRecipe(recipe, file) {
   }
 }
 
-// Delete a recipe
 async function deleteRecipe(id) {
   try {
     const { error } = await supabaseClient
@@ -147,11 +148,19 @@ function renderRecipes() {
         Added by <strong>${escapeHtml(recipe.added_by)}</strong> · ${formatDate(recipe.created_at)}
       </div>
       ${recipe.notes ? `<div class="recipe-notes">${escapeHtml(recipe.notes)}</div>` : ""}
-      ${recipe.photo_url ? `
-        <div style="margin-top: 10px;">
-          <a href="${escapeHtml(recipe.photo_url)}" target="_blank" rel="noopener">
-            <img src="${escapeHtml(recipe.photo_url)}" alt="Recipe card" style="max-width: 120px; border-radius: 8px; border: 1px solid #ddd;">
-          </a>
+      
+      ${(recipe.photo_url || recipe.photo_url_back) ? `
+        <div style="margin-top: 12px; display: flex; gap: 10px; flex-wrap: wrap;">
+          ${recipe.photo_url ? `
+            <a href="${escapeHtml(recipe.photo_url)}" target="_blank" rel="noopener">
+              <img src="${escapeHtml(recipe.photo_url)}" alt="Front of recipe card" style="max-width: 110px; border-radius: 8px; border: 1px solid #ddd;">
+            </a>
+          ` : ""}
+          ${recipe.photo_url_back ? `
+            <a href="${escapeHtml(recipe.photo_url_back)}" target="_blank" rel="noopener">
+              <img src="${escapeHtml(recipe.photo_url_back)}" alt="Back of recipe card" style="max-width: 110px; border-radius: 8px; border: 1px solid #ddd;">
+            </a>
+          ` : ""}
         </div>
       ` : ""}
     </div>
@@ -192,8 +201,8 @@ document.getElementById("recipeForm").addEventListener("submit", async function 
   const category = document.getElementById("category").value;
   const addedBy = document.getElementById("addedBy").value;
   const notes = document.getElementById("notes").value.trim();
-  const photoInput = document.getElementById("photo");
-  const file = photoInput.files[0];
+  const frontFile = document.getElementById("photo").files[0];
+  const backFile = document.getElementById("photoBack").files[0];
 
   if (!name || !category || !addedBy) {
     alert("Please fill in Recipe Name, Category, and Added by.");
@@ -212,7 +221,7 @@ document.getElementById("recipeForm").addEventListener("submit", async function 
     notes: notes || null
   };
 
-  const result = await addRecipe(newRecipe, file);
+  const result = await addRecipe(newRecipe, frontFile, backFile);
 
   submitBtn.disabled = false;
   submitBtn.textContent = "Add Recipe";
@@ -221,7 +230,7 @@ document.getElementById("recipeForm").addEventListener("submit", async function 
     document.getElementById("recipeForm").reset();
     await loadRecipes();
   } else {
-    alert("Could not add recipe. Please try again.");
+    alert("Could not add recipe. Please try again.\n" + (result.error || ""));
   }
 });
 

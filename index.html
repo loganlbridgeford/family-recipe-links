@@ -12,7 +12,7 @@
   <div class="container">
     <!-- Family Photo Banner -->
     <div class="family-banner">
-      <img src="family.jpg" alt="Bridgeford Family" class="family-photo">
+      <img src="family.jpg" alt="Family" class="family-photo">
       <div class="banner-overlay">
         <h1>Family Recipe Links</h1>
         <p class="subtitle">Shared recipes from the family</p>
@@ -29,8 +29,8 @@
         </div>
 
         <div class="form-group">
-          <label for="recipeUrl">Recipe URL</label>
-          <input type="url" id="recipeUrl" placeholder="https://... (optional if uploading a photo)">
+          <label for="recipeUrl">Recipe URL (optional)</label>
+          <input type="url" id="recipeUrl" placeholder="https://... (leave blank if using photos)">
         </div>
 
         <div class="form-row">
@@ -64,13 +64,15 @@
           </div>
         </div>
 
-	<div class="form-group">
-  	  <label for="photo">Photo of Recipe Card (optional)</label>
-  	  <input type="file" id="photo" accept="image/*" capture="environment">
-  	  <p style="font-size: 0.8rem; color: #666; margin-top: 4px;">
-    	  Take a photo or choose one from your phone
-  	</p>
-	</div>
+        <div class="form-group">
+          <label for="photo">Front of Recipe Card (optional)</label>
+          <input type="file" id="photo" accept="image/*" capture="environment">
+        </div>
+
+        <div class="form-group">
+          <label for="photoBack">Back of Recipe Card (optional)</label>
+          <input type="file" id="photoBack" accept="image/*" capture="environment">
+        </div>
 
         <div class="form-group">
           <label for="notes">Notes (optional)</label>
@@ -100,13 +102,11 @@
     <!-- Recipe List -->
     <section class="recipe-list">
       <h2>Family Recipes <span id="recipeCount"></span></h2>
-      <div id="recipesContainer">
-        <!-- Recipes appear here -->
-      </div>
+      <div id="recipesContainer"></div>
     </section>
   </div>
 
   <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
-<script src="app.js"></script>
+  <script src="app.js"></script>
 </body>
 </html>
