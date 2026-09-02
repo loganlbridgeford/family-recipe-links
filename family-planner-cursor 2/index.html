@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
   <meta name="apple-mobile-web-app-capable" content="yes">
   <title>Family Planner</title>
-  <link rel="stylesheet" href="styles.css?v=manual-grocery">
+  <link rel="stylesheet" href="styles.css">
 </head>
 <body>
   <div class="page-bg"></div>
@@ -159,10 +159,6 @@
         <button type="button" class="btn btn-secondary" id="copyGroceryBtn">Copy list</button>
       </div>
       <p class="hint">Built from this week’s planned meals. Add a snack recipe without putting it on the calendar.</p>
-      <div class="grocery-add">
-        <input type="text" id="manualGroceryInput" placeholder="Add anything — bananas, foil, toothpaste" autocomplete="off">
-        <button type="button" class="btn btn-primary" id="manualGroceryBtn">Add</button>
-      </div>
       <div class="toolbar">
         <button type="button" class="btn btn-ghost" id="snacksBtn">Snack add-ons</button>
       </div>
@@ -178,16 +174,7 @@
       <button type="button" class="btn btn-icon modal-close" data-close="pickerModal" aria-label="Close">✕</button>
     </div>
     <div class="modal-body">
-      <div class="custom-meal-form">
-        <label class="field-label" for="customMealName">Or type a meal name</label>
-        <input type="text" class="search-input" id="customMealName" placeholder="e.g. Leftovers" autocomplete="off">
-        <label class="custom-meal-check">
-          <input type="checkbox" id="customSaveRecipe">
-          Also save to Recipes
-        </label>
-        <button type="button" class="btn btn-primary btn-block" id="customMealAddBtn">Add to Calendar</button>
-      </div>
-      <input type="search" class="search-input" id="pickerSearch" placeholder="Search recipes…">
+      <input type="search" class="search-input" id="pickerSearch" placeholder="Search meals with ingredients…">
       <div class="filter-chips" id="pickerFilters"></div>
       <ul class="meal-list" id="pickerMealList"></ul>
       <button type="button" class="btn btn-ghost btn-block" id="clearSlotBtn">Clear this slot</button>
@@ -246,10 +233,14 @@
       <button type="button" class="btn btn-icon modal-close" data-close="assignModal" aria-label="Close">✕</button>
     </div>
     <div class="modal-body">
-      <p class="hint" id="assignWeekLabel"></p>
-      <div class="assign-week" id="assignWeek" role="group" aria-label="Day"></div>
-      <label class="field-label">Meal</label>
-      <div class="assign-slots" id="assignSlots" role="group" aria-label="Meal"></div>
+      <label class="field-label" for="assignDay">Day</label>
+      <select class="select-input" id="assignDay"></select>
+      <label class="field-label" for="assignSlot">Meal</label>
+      <select class="select-input" id="assignSlot">
+        <option value="breakfast">Breakfast</option>
+        <option value="lunch">Lunch</option>
+        <option value="dinner">Dinner</option>
+      </select>
       <button type="button" class="btn btn-primary btn-block" id="confirmAssignBtn">Assign meal</button>
     </div>
   </dialog>
@@ -267,8 +258,8 @@
   </dialog>
 
   <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
-  <script src="js/config.js?v=import-recipe"></script>
-  <script src="js/db.js?v=import-recipe"></script>
-  <script src="app.js?v=import-recipe"></script>
+  <script src="js/config.js"></script>
+  <script src="js/db.js"></script>
+  <script src="app.js"></script>
 </body>
 </html>

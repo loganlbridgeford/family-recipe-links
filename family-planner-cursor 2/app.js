@@ -1,17 +1,6 @@
 /* global APP_CONFIG, DB */
 const C = APP_CONFIG;
 
-const FALLBACK_MEMBERS = [
-  'Logan',
-  'Nadine',
-  'John C.',
-  'Neileen',
-  'John A.',
-  'Abbie',
-  'Tyler',
-  'Monica'
-];
-
 const state = {
   recipes: [],
   members: [],
@@ -19,27 +8,14 @@ const state = {
   plan: DB.emptyPlan(),
   groceryChecked: {},
   snackAdds: [],
-  manualItems: [],
   categoryFilter: 'All',
   search: '',
-  pickerCategory: 'All',
-  generateCategory: 'All',
+  pickerFilters: new Set(),
+  generateFilters: new Set(),
   pickerContext: null,
   pendingAssignId: null,
-  assignDay: 'mon',
-  assignSlot: 'breakfast',
   saveTimer: null
 };
-
-let drag = null;
-let suppressClickUntil = 0;
-
-function toLocalISODate(date) {
-  const y = date.getFullYear();
-  const m = String(date.getMonth() + 1).padStart(2, '0');
-  const d = String(date.getDate()).padStart(2, '0');
-  return `${y}-${m}-${d}`;
-}
 
 function getMondayISO(date) {
   const d = new Date(date);
@@ -47,7 +23,7 @@ function getMondayISO(date) {
   const diff = day === 0 ? -6 : 1 - day;
   d.setDate(d.getDate() + diff);
   d.setHours(0, 0, 0, 0);
-  return toLocalISODate(d);
+  return d.toISOString().slice(0, 10);
 }
 
 function parseDate(iso) {
@@ -86,30 +62,6 @@ function getRecipe(id) {
   return state.recipes.find((r) => String(r.id) === String(id)) || null;
 }
 
-function slotValue(plan, day, slot) {
-  if (!plan || !plan[day]) return null;
-  const raw = plan[day][slot];
-  if (raw == null || raw === '') return null;
-  if (typeof raw === 'object') {
-    const name = raw.type === 'custom' ? String(raw.name || '').trim() : '';
-    return name ? { type: 'custom', name } : null;
-  }
-  return { type: 'recipe', id: raw, recipe: getRecipe(raw) };
-}
-
-function slotName(val) {
-  if (!val) return '';
-  if (val.type === 'custom') return val.name;
-  return (val.recipe && val.recipe.name) || 'Meal';
-}
-
-function defaultAddedBy() {
-  const sel = document.getElementById('addedBy');
-  if (sel && sel.value) return sel.value;
-  if (state.members[0] && state.members[0].display_name) return state.members[0].display_name;
-  return FALLBACK_MEMBERS[0];
-}
-
 function recipeSearchText(r) {
   const ings = (r.ingredients || []).map((i) => i.item).join(' ');
   const instr = r.instructions || {};
@@ -138,8 +90,7 @@ async function persistPlan() {
     await DB.savePlan(state.weekStart, {
       plan: state.plan,
       grocery_checked: state.groceryChecked,
-      snack_adds: state.snackAdds,
-      manual_items: state.manualItems
+      snack_adds: state.snackAdds
     });
   } catch (err) {
     console.error(err);
@@ -155,7 +106,6 @@ async function loadWeek() {
   });
   state.groceryChecked = row.grocery_checked || {};
   state.snackAdds = row.snack_adds || [];
-  state.manualItems = Array.isArray(row.manual_items) ? row.manual_items : [];
   renderWeekLabel();
   renderCalendar();
   renderGrocery();
@@ -176,7 +126,6 @@ function setTab(name) {
     panel.hidden = !on;
     panel.classList.toggle('active', on);
   });
-  document.getElementById('weekBar').hidden = name === 'recipes';
 }
 
 /* ---------- Calendar ---------- */
@@ -201,18 +150,13 @@ function renderCalendar() {
     grid.appendChild(label);
 
     C.DAYS.forEach((day) => {
-      const val = slotValue(state.plan, day, slot);
+      const mealId = state.plan[day][slot];
+      const meal = mealId ? getRecipe(mealId) : null;
       const cell = document.createElement('button');
       cell.type = 'button';
-      cell.dataset.day = day;
-      cell.dataset.slot = slot;
-      if (val && val.type === 'custom') {
-        cell.className = 'meal-cell filled custom';
-        cell.innerHTML = `<span class="meal-cell-name">${escapeHtml(val.name)}</span>`;
-      } else if (val && val.type === 'recipe' && val.recipe) {
-        const meal = val.recipe;
+      cell.className = 'meal-cell' + (meal ? ' filled' : '');
+      if (meal) {
         const batch = (meal.tags || []).includes('batch-cook');
-        cell.className = 'meal-cell filled';
         cell.innerHTML = `
           <span class="meal-cell-name">${escapeHtml(meal.name)}</span>
           <span class="meal-cell-meta">
@@ -220,16 +164,11 @@ function renderCalendar() {
             ${batch ? '<span class="badge badge-batch">Batch</span>' : ''}
           </span>`;
       } else {
-        cell.className = 'meal-cell';
         cell.innerHTML = '<span class="meal-cell-placeholder">Tap to add</span>';
       }
       cell.addEventListener('click', () => {
-        if (Date.now() < suppressClickUntil) return;
-        if (val && val.type === 'recipe' && val.recipe) {
-          openRecipeCard(val.recipe.id, { fromCalendar: true, day, slot });
-        } else {
-          openPicker(day, slot);
-        }
+        if (meal) openRecipeCard(meal.id, { fromCalendar: true, day, slot });
+        else openPicker(day, slot);
       });
       grid.appendChild(cell);
     });
@@ -238,48 +177,12 @@ function renderCalendar() {
 
 function openPicker(day, slot) {
   state.pickerContext = { day, slot };
-  state.pickerCategory = 'All';
+  state.pickerFilters = new Set();
   document.getElementById('pickerTitle').textContent = `Choose ${C.SLOT_LABELS[slot]} — ${C.DAY_LABELS[C.DAYS.indexOf(day)]}`;
   document.getElementById('pickerSearch').value = '';
-  const current = slotValue(state.plan, day, slot);
-  document.getElementById('customMealName').value = current && current.type === 'custom' ? current.name : '';
-  document.getElementById('customSaveRecipe').checked = false;
-  renderPickerCategoryChips();
+  renderFilterChips('pickerFilters', state.pickerFilters, renderPickerList);
   renderPickerList();
   document.getElementById('pickerModal').showModal();
-}
-
-function renderPickerCategoryChips() {
-  const container = document.getElementById('pickerFilters');
-  container.innerHTML = '';
-  C.RECIPE_CATEGORIES.forEach((cat) => {
-    const chip = document.createElement('button');
-    chip.type = 'button';
-    chip.className = 'chip' + (state.pickerCategory === cat ? ' active' : '');
-    chip.textContent = cat;
-    chip.addEventListener('click', () => {
-      state.pickerCategory = cat;
-      renderPickerCategoryChips();
-      renderPickerList();
-    });
-    container.appendChild(chip);
-  });
-}
-
-function renderGenerateCategoryChips() {
-  const container = document.getElementById('generateFilters');
-  container.innerHTML = '';
-  C.RECIPE_CATEGORIES.forEach((cat) => {
-    const chip = document.createElement('button');
-    chip.type = 'button';
-    chip.className = 'chip' + (state.generateCategory === cat ? ' active' : '');
-    chip.textContent = cat;
-    chip.addEventListener('click', () => {
-      state.generateCategory = cat;
-      renderGenerateCategoryChips();
-    });
-    container.appendChild(chip);
-  });
 }
 
 function renderFilterChips(containerId, filterSet, onChange) {
@@ -302,28 +205,33 @@ function renderFilterChips(containerId, filterSet, onChange) {
 
 function renderPickerList() {
   const q = document.getElementById('pickerSearch').value.trim().toLowerCase();
+  const slot = state.pickerContext?.slot;
   const list = document.getElementById('pickerMealList');
   list.innerHTML = '';
 
   const meals = state.recipes.filter((r) => {
-    if (state.pickerCategory !== 'All' && (r.category || 'Other') !== state.pickerCategory) return false;
+    if (!DB.canPlan(r)) return false;
+    if (slot && !(r.meal_types || []).includes(slot)) return false;
     if (q && !recipeSearchText(r).includes(q)) return false;
+    if (state.pickerFilters.size) {
+      for (const tag of state.pickerFilters) {
+        if (!(r.tags || []).includes(tag)) return false;
+      }
+    }
     return true;
   }).sort((a, b) => a.name.localeCompare(b.name));
 
   if (!meals.length) {
-    list.innerHTML = '<li class="meal-list-item"><p>No recipes match.</p></li>';
+    list.innerHTML = '<li class="meal-list-item"><p>No plan-ready recipes match. Add ingredients on the Recipes tab.</p></li>';
     return;
   }
 
   meals.forEach((meal) => {
     const li = document.createElement('li');
     li.className = 'meal-list-item';
-    const note = DB.canPlan(meal) ? '' : '<div class="meta">No ingredients — won’t add to grocery.</div>';
     li.innerHTML = `
       <h4>${escapeHtml(meal.name)}</h4>
       <div class="meta">${meal.prep_minutes || '—'} min · ${(meal.tags || []).slice(0, 3).map((t) => C.TAG_LABELS[t] || t).join(' · ')}</div>
-      ${note}
       <div class="actions">
         <button type="button" class="btn btn-secondary btn-sm view-recipe">View</button>
         <button type="button" class="btn btn-primary btn-sm assign-meal">Add to calendar</button>
@@ -335,47 +243,9 @@ function renderPickerList() {
 }
 
 function selectMeal(mealId) {
-  assignPickerValue(mealId);
-}
-
-async function addCustomMeal() {
-  if (!state.pickerContext) return;
-  const name = document.getElementById('customMealName').value.trim();
-  if (!name) {
-    showToast('Type a meal name first.');
-    return;
-  }
-  if (document.getElementById('customSaveRecipe').checked) {
-    const btn = document.getElementById('customMealAddBtn');
-    btn.disabled = true;
-    try {
-      const created = await DB.addRecipe({
-        name,
-        category: 'Other',
-        added_by: defaultAddedBy(),
-        ingredients: [],
-        meal_types: [],
-        tags: []
-      });
-      state.recipes.push(created);
-      state.recipes.sort((a, b) => a.name.localeCompare(b.name));
-      renderRecipeList();
-      assignPickerValue(created.id);
-    } catch (err) {
-      console.error(err);
-      showToast('Could not save recipe.');
-    } finally {
-      btn.disabled = false;
-    }
-    return;
-  }
-  assignPickerValue({ type: 'custom', name });
-}
-
-function assignPickerValue(value) {
   if (!state.pickerContext) return;
   const { day, slot } = state.pickerContext;
-  state.plan[day][slot] = value;
+  state.plan[day][slot] = mealId;
   document.getElementById('pickerModal').close();
   renderCalendar();
   renderGrocery();
@@ -393,95 +263,13 @@ function clearSlot() {
   scheduleSave();
 }
 
-function moveSlot(fromDay, fromSlot, toDay, toSlot) {
-  if (fromDay === toDay && fromSlot === toSlot) return;
-  const from = state.plan[fromDay][fromSlot];
-  state.plan[fromDay][fromSlot] = state.plan[toDay][toSlot];
-  state.plan[toDay][toSlot] = from;
-  renderCalendar();
-  renderGrocery();
-  scheduleSave();
-}
-
-function cellFromPoint(x, y) {
-  const el = document.elementFromPoint(x, y);
-  return el && el.closest ? el.closest('#calendarGrid .meal-cell') : null;
-}
-
-function endDrag() {
-  if (drag && drag.ghost) drag.ghost.remove();
-  document.querySelectorAll('.meal-cell.drag-source, .meal-cell.drag-over').forEach((el) => {
-    el.classList.remove('drag-source', 'drag-over');
-  });
-  if (drag && drag.mode === 'active') suppressClickUntil = Date.now() + 400;
-  drag = null;
-}
-
-function onGridPointerDown(e) {
-  if (e.button != null && e.button !== 0) return;
-  const cell = e.target.closest('.meal-cell');
-  if (!cell) return;
-  const { day, slot } = cell.dataset;
-  const val = slotValue(state.plan, day, slot);
-  if (!val || (val.type === 'recipe' && !val.recipe)) return;
-  drag = { mode: 'pending', day, slot, x: e.clientX, y: e.clientY, cell, pointerId: e.pointerId };
-}
-
-function onGridPointerMove(e) {
-  if (!drag) return;
-  const dx = e.clientX - drag.x;
-  const dy = e.clientY - drag.y;
-  if (drag.mode === 'pending') {
-    if (dx * dx + dy * dy < 144) return;
-    drag.mode = 'active';
-    drag.cell.classList.add('drag-source');
-    const ghost = document.createElement('div');
-    ghost.className = 'meal-drag-ghost';
-    ghost.textContent = slotName(slotValue(state.plan, drag.day, drag.slot));
-    document.body.appendChild(ghost);
-    drag.ghost = ghost;
-    try {
-      drag.cell.setPointerCapture(e.pointerId);
-    } catch (_) { /* ignore */ }
-  }
-  if (drag.mode !== 'active') return;
-  e.preventDefault();
-  drag.ghost.style.left = `${e.clientX}px`;
-  drag.ghost.style.top = `${e.clientY}px`;
-  document.querySelectorAll('.meal-cell.drag-over').forEach((el) => el.classList.remove('drag-over'));
-  const over = cellFromPoint(e.clientX, e.clientY);
-  if (over && (over.dataset.day !== drag.day || over.dataset.slot !== drag.slot)) {
-    over.classList.add('drag-over');
-  }
-}
-
-function onGridPointerUp(e) {
-  if (!drag) return;
-  if (drag.mode === 'active') {
-    const over = cellFromPoint(e.clientX, e.clientY);
-    if (over && over.dataset.day && over.dataset.slot) {
-      moveSlot(drag.day, drag.slot, over.dataset.day, over.dataset.slot);
-    }
-  }
-  endDrag();
-}
-
-function initCalendarDrag() {
-  const grid = document.getElementById('calendarGrid');
-  grid.addEventListener('pointerdown', onGridPointerDown);
-  window.addEventListener('pointermove', onGridPointerMove, { passive: false });
-  window.addEventListener('pointerup', onGridPointerUp);
-  window.addEventListener('pointercancel', endDrag);
-}
-
 /* ---------- Generate ---------- */
 
 function getUsedMealIds() {
   const used = new Set();
   C.DAYS.forEach((d) => {
     C.MEAL_SLOTS.forEach((s) => {
-      const val = slotValue(state.plan, d, s);
-      if (val && val.type === 'recipe') used.add(String(val.id));
+      if (state.plan[d][s]) used.add(String(state.plan[d][s]));
     });
   });
   return used;
@@ -493,7 +281,7 @@ function scoreMealForSlot(meal, day, slot) {
   const tags = meal.tags || [];
   if (slot === 'dinner') {
     if (dayIndex >= 5 && tags.includes('batch-cook')) score += 50;
-    if (dayIndex <= 2 && (tags.includes('leftover-friendly') || tags.includes('batch-cook'))) score += 25;
+    if (dayIndex <= 2 && tags.includes('batch-cook')) score += 20;
     if (dayIndex <= 2 && (meal.prep_minutes || 99) <= 30) score += 15;
   }
   if (slot === 'lunch' && tags.includes('packable') && dayIndex <= 4) score += 10;
@@ -502,10 +290,15 @@ function scoreMealForSlot(meal, day, slot) {
   return score;
 }
 
-function getCandidates(slot, category, used) {
+function getCandidates(slot, filters, used) {
   let pool = state.recipes.filter((m) => DB.canPlan(m) && (m.meal_types || []).includes(slot));
-  if (category && category !== 'All') {
-    pool = pool.filter((m) => (m.category || 'Other') === category);
+  if (filters.size) {
+    pool = pool.filter((m) => {
+      for (const tag of filters) {
+        if (!(m.tags || []).includes(tag)) return false;
+      }
+      return true;
+    });
   }
   const unused = pool.filter((m) => !used.has(String(m.id)));
   return unused.length ? unused : pool;
@@ -517,7 +310,7 @@ async function fillSlots(target) {
   C.DAYS.forEach((day) => {
     C.MEAL_SLOTS.forEach((slot) => {
       if (target !== 'all' && target !== slot) return;
-      if (!slotValue(state.plan, day, slot)) slots.push({ day, slot });
+      if (!state.plan[day][slot]) slots.push({ day, slot });
     });
   });
   if (!slots.length) {
@@ -526,7 +319,7 @@ async function fillSlots(target) {
   }
   let filled = 0;
   slots.forEach(({ day, slot }) => {
-    const candidates = getCandidates(slot, state.generateCategory, used);
+    const candidates = getCandidates(slot, state.generateFilters, used);
     if (!candidates.length) return;
     candidates.sort((a, b) => scoreMealForSlot(b, day, slot) - scoreMealForSlot(a, day, slot));
     const pick = candidates[0];
@@ -549,8 +342,8 @@ function previewSuggestions() {
   C.DAYS.forEach((day) => {
     C.MEAL_SLOTS.forEach((slot) => {
       if (target !== 'all' && target !== slot) return;
-      if (slotValue(state.plan, day, slot)) return;
-      const candidates = getCandidates(slot, state.generateCategory, used);
+      if (state.plan[day][slot]) return;
+      const candidates = getCandidates(slot, state.generateFilters, used);
       candidates.sort((a, b) => scoreMealForSlot(b, day, slot) - scoreMealForSlot(a, day, slot));
       const pick = candidates.find((m) => !seen.has(String(m.id))) || candidates[0];
       if (pick) {
@@ -600,7 +393,7 @@ function openRecipeCard(mealId, context = {}) {
   const ings = meal.ingredients || [];
   document.getElementById('recipeIngredients').innerHTML = ings.length
     ? ings.map((i) => `<li>${escapeHtml(i.item)}${i.qty ? ' — ' + escapeHtml(i.qty) : ''}</li>`).join('')
-    : '<li>No ingredients — won’t add to grocery.</li>';
+    : '<li>No ingredients yet. Edit this recipe to use it on the calendar.</li>';
 
   const instr = meal.instructions || {};
   const prepSection = document.getElementById('recipePrepSection');
@@ -629,31 +422,19 @@ function openRecipeCard(mealId, context = {}) {
     actions.appendChild(btn);
   }
   if (context.fromCalendar) {
-    const change = document.createElement('button');
-    change.className = 'btn btn-secondary';
-    change.textContent = 'Change meal';
-    change.addEventListener('click', () => {
+    const btn = document.createElement('button');
+    btn.className = 'btn btn-secondary';
+    btn.textContent = 'Change meal';
+    btn.addEventListener('click', () => {
       document.getElementById('recipeModal').close();
       openPicker(context.day, context.slot);
     });
-    actions.appendChild(change);
-    const remove = document.createElement('button');
-    remove.className = 'btn btn-ghost';
-    remove.textContent = 'Remove meal';
-    remove.addEventListener('click', () => {
-      state.plan[context.day][context.slot] = null;
-      document.getElementById('recipeModal').close();
-      renderCalendar();
-      renderGrocery();
-      scheduleSave();
-      showToast('Meal removed.');
-    });
-    actions.appendChild(remove);
+    actions.appendChild(btn);
   }
-  if (context.fromLibrary) {
+  if (context.fromLibrary && DB.canPlan(meal)) {
     const btn = document.createElement('button');
     btn.className = 'btn btn-primary';
-    btn.textContent = 'Assign';
+    btn.textContent = 'Assign to calendar';
     btn.addEventListener('click', () => openAssignModal(meal.id));
     actions.appendChild(btn);
   }
@@ -662,57 +443,26 @@ function openRecipeCard(mealId, context = {}) {
 
 function openAssignModal(mealId) {
   state.pendingAssignId = mealId;
-  state.assignDay = C.DAYS[0];
-  state.assignSlot = 'breakfast';
+  const select = document.getElementById('assignDay');
+  select.innerHTML = '';
+  C.DAYS.forEach((day, i) => {
+    const date = getDayDate(state.weekStart, i);
+    const opt = document.createElement('option');
+    opt.value = day;
+    opt.textContent = `${C.DAY_LABELS[i]} (${date.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })})`;
+    select.appendChild(opt);
+  });
   const meal = getRecipe(mealId);
   if (meal && (meal.meal_types || []).length === 1 && C.MEAL_SLOTS.includes(meal.meal_types[0])) {
-    state.assignSlot = meal.meal_types[0];
+    document.getElementById('assignSlot').value = meal.meal_types[0];
   }
-  document.getElementById('assignWeekLabel').textContent = formatWeekLabel(state.weekStart);
-  renderAssignWeek();
-  renderAssignSlots();
   document.getElementById('assignModal').showModal();
 }
 
-function renderAssignWeek() {
-  const wrap = document.getElementById('assignWeek');
-  wrap.innerHTML = '';
-  C.DAYS.forEach((day, i) => {
-    const date = getDayDate(state.weekStart, i);
-    const btn = document.createElement('button');
-    btn.type = 'button';
-    btn.className = 'assign-day' + (state.assignDay === day ? ' active' : '');
-    if (slotValue(state.plan, day, state.assignSlot)) btn.classList.add('has-meal');
-    btn.innerHTML = `<span class="dow">${C.DAY_LABELS[i]}</span><span class="num">${date.getDate()}</span>`;
-    btn.addEventListener('click', () => {
-      state.assignDay = day;
-      renderAssignWeek();
-    });
-    wrap.appendChild(btn);
-  });
-}
-
-function renderAssignSlots() {
-  const wrap = document.getElementById('assignSlots');
-  wrap.innerHTML = '';
-  C.MEAL_SLOTS.forEach((slot) => {
-    const btn = document.createElement('button');
-    btn.type = 'button';
-    btn.className = 'chip' + (state.assignSlot === slot ? ' active' : '');
-    btn.textContent = C.SLOT_LABELS[slot];
-    btn.addEventListener('click', () => {
-      state.assignSlot = slot;
-      renderAssignSlots();
-      renderAssignWeek();
-    });
-    wrap.appendChild(btn);
-  });
-}
-
 function confirmAssign() {
-  if (!state.pendingAssignId || !state.assignDay || !state.assignSlot) return;
-  const day = state.assignDay;
-  const slot = state.assignSlot;
+  if (!state.pendingAssignId) return;
+  const day = document.getElementById('assignDay').value;
+  const slot = document.getElementById('assignSlot').value;
   state.plan[day][slot] = state.pendingAssignId;
   state.pendingAssignId = null;
   document.getElementById('assignModal').close();
@@ -739,7 +489,7 @@ function populateMemberSelect(selected) {
 }
 
 function renderCategoryChips() {
-  const cats = C.RECIPE_CATEGORIES;
+  const cats = ['All', 'Breakfast', 'Lunch', 'Dinner', 'Appetizer', 'Dessert', 'Snack', 'Other'];
   const wrap = document.getElementById('filterChips');
   wrap.innerHTML = '';
   cats.forEach((cat) => {
@@ -930,8 +680,7 @@ async function handleDeleteRecipe(id) {
     state.recipes = state.recipes.filter((r) => String(r.id) !== String(id));
     C.DAYS.forEach((d) => {
       C.MEAL_SLOTS.forEach((s) => {
-        const val = slotValue(state.plan, d, s);
-        if (val && val.type === 'recipe' && String(val.id) === String(id)) state.plan[d][s] = null;
+        if (String(state.plan[d][s]) === String(id)) state.plan[d][s] = null;
       });
     });
     state.snackAdds = state.snackAdds.filter((sid) => String(sid) !== String(id));
@@ -993,92 +742,47 @@ function renderRecipeList() {
       <div class="recipe-card-actions">
         <button type="button" class="btn btn-secondary btn-sm view-btn">View</button>
         <button type="button" class="btn btn-ghost btn-sm edit-btn">Edit</button>
-        <button type="button" class="btn btn-primary btn-sm assign-btn">Assign</button>
+        ${ready ? '<button type="button" class="btn btn-primary btn-sm assign-btn">Assign</button>' : ''}
       </div>`;
     card.querySelector('.delete-btn').addEventListener('click', () => handleDeleteRecipe(recipe.id));
     card.querySelector('.view-btn').addEventListener('click', () => openRecipeCard(recipe.id, { fromLibrary: true }));
     card.querySelector('.edit-btn').addEventListener('click', () => openEditForm(recipe));
-    card.querySelector('.assign-btn').addEventListener('click', () => openAssignModal(recipe.id));
+    const assignBtn = card.querySelector('.assign-btn');
+    if (assignBtn) assignBtn.addEventListener('click', () => openAssignModal(recipe.id));
     container.appendChild(card);
   });
 }
 
 /* ---------- Grocery ---------- */
 
-function addGroceryItem(items, ing, recipeName) {
-  const itemName = (ing.item || '').trim();
-  if (!itemName) return;
-  const source = (recipeName || '').trim();
-  const key = itemName.toLowerCase() + '::' + source.toLowerCase();
-  if (!items[key]) {
-    items[key] = { item: itemName, qtys: [ing.qty], section: ing.section || 'other', recipeName: source };
-  } else if (ing.qty && !items[key].qtys.includes(ing.qty)) {
-    items[key].qtys.push(ing.qty);
-  }
-}
-
-function groceryItemLabel(entry) {
-  const name = entry.recipeName ? `${entry.item} (${entry.recipeName}.)` : entry.item;
-  const qty = (entry.qtys || []).filter(Boolean).join(' + ');
-  return qty ? `${name} — ${qty}` : name;
+function addGroceryItem(items, ing) {
+  const key = (ing.item || '').toLowerCase().trim();
+  if (!key) return;
+  if (!items[key]) items[key] = { item: ing.item, qtys: [ing.qty], section: ing.section || 'other' };
+  else if (ing.qty && !items[key].qtys.includes(ing.qty)) items[key].qtys.push(ing.qty);
 }
 
 function getGroceryItems() {
   const items = {};
   C.DAYS.forEach((day) => {
     C.MEAL_SLOTS.forEach((slot) => {
-      const val = slotValue(state.plan, day, slot);
-      if (!val || val.type !== 'recipe' || !val.recipe || !DB.canPlan(val.recipe)) return;
-      (val.recipe.ingredients || []).forEach((ing) => addGroceryItem(items, ing, val.recipe.name));
+      const meal = getRecipe(state.plan[day][slot]);
+      if (!meal) return;
+      (meal.ingredients || []).forEach((ing) => addGroceryItem(items, ing));
     });
   });
   state.snackAdds.forEach((id) => {
     const meal = getRecipe(id);
-    if (meal && DB.canPlan(meal)) {
-      (meal.ingredients || []).forEach((ing) => addGroceryItem(items, ing, meal.name));
-    }
+    if (meal) (meal.ingredients || []).forEach((ing) => addGroceryItem(items, ing));
   });
   return items;
-}
-
-function guessGrocerySection(name) {
-  const key = (name || '').toLowerCase().trim();
-  if (!key) return 'other';
-  for (const recipe of state.recipes) {
-    for (const ing of recipe.ingredients || []) {
-      if ((ing.item || '').toLowerCase().trim() === key && C.MEAL_SECTIONS.includes(ing.section)) {
-        return ing.section;
-      }
-    }
-  }
-  return 'other';
-}
-
-function addManualGrocery() {
-  const input = document.getElementById('manualGroceryInput');
-  const name = input.value.trim();
-  if (!name) {
-    showToast('Type an item to add.');
-    return;
-  }
-  state.manualItems.push({
-    id: 'manual-' + Date.now(),
-    item: name,
-    qty: '',
-    section: guessGrocerySection(name),
-    checked: false
-  });
-  input.value = '';
-  renderGrocery();
-  scheduleSave();
 }
 
 function renderGrocery() {
   const container = document.getElementById('groceryList');
   const items = getGroceryItems();
-  const manuals = state.manualItems || [];
   const keys = Object.keys(items);
-  if (!keys.length && !manuals.length) {
+  if (!keys.length) {
     container.innerHTML = '<div class="empty-state"><p>Add plan-ready meals to this week to build a grocery list.</p></div>';
     return;
   }
@@ -1089,17 +793,7 @@ function renderGrocery() {
   keys.forEach((key) => {
     const item = items[key];
     const section = grouped[item.section] ? item.section : 'other';
-    grouped[section].push({
-      kind: 'recipe',
-      key,
-      item: item.item,
-      qtys: item.qtys,
-      recipeName: item.recipeName
-    });
-  });
-  manuals.forEach((manual) => {
-    const section = grouped[manual.section] ? manual.section : 'other';
-    grouped[section].push({ kind: 'manual', ...manual });
+    grouped[section].push({ key, ...item });
   });
   container.innerHTML = '';
   C.MEAL_SECTIONS.forEach((section) => {
@@ -1114,41 +808,19 @@ function renderGrocery() {
     const itemList = document.createElement('div');
     itemList.className = 'grocery-items';
     title.addEventListener('click', () => itemList.classList.toggle('collapsed'));
-    sectionItems.forEach((entry) => {
+    sectionItems.forEach(({ key, item, qtys }) => {
       const row = document.createElement('div');
-      if (entry.kind === 'manual') {
-        const checked = !!entry.checked;
-        row.className = 'grocery-item' + (checked ? ' checked' : '');
-        const id = 'm-' + String(entry.id).replace(/\W/g, '-');
-        row.innerHTML = `
-          <input type="checkbox" id="${id}" ${checked ? 'checked' : ''}>
-          <label for="${id}">${escapeHtml(entry.item)}${entry.qty ? ' — ' + escapeHtml(entry.qty) : ''} <span class="badge badge-added">Added</span></label>
-          <button type="button" class="btn btn-icon btn-sm remove-manual" aria-label="Remove">✕</button>`;
-        row.querySelector('input').addEventListener('change', (e) => {
-          const found = state.manualItems.find((m) => m.id === entry.id);
-          if (found) found.checked = e.target.checked;
-          row.classList.toggle('checked', e.target.checked);
-          scheduleSave();
-        });
-        row.querySelector('.remove-manual').addEventListener('click', (e) => {
-          e.stopPropagation();
-          state.manualItems = state.manualItems.filter((m) => m.id !== entry.id);
-          renderGrocery();
-          scheduleSave();
-        });
-      } else {
-        const checked = !!state.groceryChecked[entry.key];
-        row.className = 'grocery-item' + (checked ? ' checked' : '');
-        const id = 'g-' + entry.key.replace(/\W/g, '-');
-        row.innerHTML = `
-          <input type="checkbox" id="${id}" ${checked ? 'checked' : ''}>
-          <label for="${id}">${escapeHtml(groceryItemLabel(entry))}</label>`;
-        row.querySelector('input').addEventListener('change', (e) => {
-          state.groceryChecked[entry.key] = e.target.checked;
-          row.classList.toggle('checked', e.target.checked);
-          scheduleSave();
-        });
-      }
+      const checked = !!state.groceryChecked[key];
+      row.className = 'grocery-item' + (checked ? ' checked' : '');
+      const id = 'g-' + key.replace(/\W/g, '-');
+      row.innerHTML = `
+        <input type="checkbox" id="${id}" ${checked ? 'checked' : ''}>
+        <label for="${id}">${escapeHtml(item)}${qtys.filter(Boolean).length ? ' — ' + escapeHtml(qtys.filter(Boolean).join(' + ')) : ''}</label>`;
+      row.querySelector('input').addEventListener('change', (e) => {
+        state.groceryChecked[key] = e.target.checked;
+        row.classList.toggle('checked', e.target.checked);
+        scheduleSave();
+      });
       itemList.appendChild(row);
     });
     group.appendChild(title);
@@ -1160,8 +832,7 @@ function renderGrocery() {
 function copyGroceryList() {
   const items = getGroceryItems();
   const keys = Object.keys(items);
-  const manuals = state.manualItems || [];
-  if (!keys.length && !manuals.length) {
+  if (!keys.length) {
     showToast('Nothing to copy yet.');
     return;
   }
@@ -1170,12 +841,8 @@ function copyGroceryList() {
     const item = items[key];
     const section = C.SECTION_LABELS[item.section] || 'Other';
     if (!grouped[section]) grouped[section] = [];
-    grouped[section].push(groceryItemLabel(item));
-  });
-  manuals.forEach((manual) => {
-    const section = C.SECTION_LABELS[manual.section] || 'Other';
-    if (!grouped[section]) grouped[section] = [];
-    grouped[section].push(manual.qty ? `${manual.item} — ${manual.qty}` : `${manual.item} (added)`);
+    const qty = item.qtys.filter(Boolean).join(' + ');
+    grouped[section].push(qty ? `${item.item} — ${qty}` : item.item);
   });
   let text = 'Family Grocery List\n\n';
   Object.entries(grouped).forEach(([section, lines]) => {
@@ -1250,8 +917,8 @@ async function init() {
     await loadWeek();
   });
   document.getElementById('generateBtn').addEventListener('click', () => {
-    state.generateCategory = 'All';
-    renderGenerateCategoryChips();
+    state.generateFilters = new Set();
+    renderFilterChips('generateFilters', state.generateFilters, () => {});
     document.getElementById('previewList').innerHTML = '';
     document.getElementById('generateModal').showModal();
   });
@@ -1261,32 +928,15 @@ async function init() {
   document.getElementById('previewBtn').addEventListener('click', previewSuggestions);
   document.getElementById('clearBtn').addEventListener('click', async () => {
     if (!confirm('Clear all meals for this week?')) return;
-    const clearExtras = confirm('Also clear extra grocery items?');
     state.plan = DB.emptyPlan();
     state.snackAdds = [];
     state.groceryChecked = {};
-    if (clearExtras) state.manualItems = [];
     renderCalendar();
     renderGrocery();
     scheduleSave();
   });
-  document.getElementById('manualGroceryBtn').addEventListener('click', addManualGrocery);
-  document.getElementById('manualGroceryInput').addEventListener('keydown', (e) => {
-    if (e.key === 'Enter') {
-      e.preventDefault();
-      addManualGrocery();
-    }
-  });
   document.getElementById('pickerSearch').addEventListener('input', renderPickerList);
   document.getElementById('clearSlotBtn').addEventListener('click', clearSlot);
-  document.getElementById('customMealAddBtn').addEventListener('click', addCustomMeal);
-  document.getElementById('customMealName').addEventListener('keydown', (e) => {
-    if (e.key === 'Enter') {
-      e.preventDefault();
-      addCustomMeal();
-    }
-  });
-  initCalendarDrag();
   document.getElementById('copyGroceryBtn').addEventListener('click', copyGroceryList);
   document.getElementById('snacksBtn').addEventListener('click', () => {
     document.getElementById('snackSearch').value = '';
@@ -1313,33 +963,17 @@ async function init() {
   });
 
   try {
-    state.recipes = await DB.listRecipes();
-  } catch (err) {
-    console.error(err);
-    showToast('Could not load recipes. Check the SQL migration ran.');
-    document.getElementById('recipesContainer').innerHTML =
-      '<div class="empty-state"><p>Could not load recipes. Confirm the household SQL ran in Supabase.</p></div>';
-  }
-
-  try {
-    const members = await DB.listMembers();
-    state.members = members && members.length
-      ? members
-      : FALLBACK_MEMBERS.map((display_name, i) => ({ display_name, sort_order: i + 1 }));
-  } catch (err) {
-    console.error(err);
-    state.members = FALLBACK_MEMBERS.map((display_name, i) => ({ display_name, sort_order: i + 1 }));
-  }
-
-  populateMemberSelect();
-  renderRecipeList();
-  try {
+    const [recipes, members] = await Promise.all([DB.listRecipes(), DB.listMembers()]);
+    state.recipes = recipes;
+    state.members = members;
+    populateMemberSelect();
+    renderRecipeList();
     await loadWeek();
   } catch (err) {
     console.error(err);
-    showToast('Could not load this week’s plan.');
-    renderCalendar();
-    renderGrocery();
+    showToast('Could not load household data. Check the SQL migration ran.');
+    document.getElementById('recipesContainer').innerHTML =
+      '<div class="empty-state"><p>Could not load recipes. Confirm the household SQL ran in Supabase.</p></div>';
   }
 }
 
