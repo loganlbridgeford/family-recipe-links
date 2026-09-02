@@ -2,111 +2,281 @@
 <html lang="en">
 <head>
   <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Family Recipe Links</title>
-  <link rel="stylesheet" href="styles.css">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <title>Family Planner</title>
+  <link rel="stylesheet" href="styles.css?v=pull-ing-1">
 </head>
 <body>
   <div class="page-bg"></div>
 
   <div class="container">
-    <!-- Family Photo Banner -->
     <div class="family-banner">
       <img src="family.jpg" alt="Family" class="family-photo">
       <div class="banner-overlay">
-        <h1>Family Recipe Links</h1>
-        <p class="subtitle">Shared recipes from the family</p>
+        <h1>Family Planner</h1>
+        <p class="subtitle">Meals · Recipes · Grocery</p>
       </div>
     </div>
 
-    <!-- Add Recipe Form -->
-    <section class="add-form">
-      <h2>Add a Recipe</h2>
-      <form id="recipeForm">
-        <div class="form-group">
-          <label for="recipeName">Recipe Name</label>
-          <input type="text" id="recipeName" placeholder="e.g. Grandma's Chili" required>
-        </div>
+    <nav class="tabs" role="tablist" aria-label="Main">
+      <button type="button" class="tab active" data-tab="plan" role="tab" aria-selected="true">Plan</button>
+      <button type="button" class="tab" data-tab="recipes" role="tab" aria-selected="false">Recipes</button>
+      <button type="button" class="tab" data-tab="grocery" role="tab" aria-selected="false">Grocery</button>
+    </nav>
 
-        <div class="form-group">
-          <label for="recipeUrl">Recipe URL (optional)</label>
-          <input type="url" id="recipeUrl" placeholder="https://... (leave blank if using photos)">
-        </div>
+    <div class="week-bar" id="weekBar">
+      <button type="button" class="btn btn-icon" id="prevWeek" aria-label="Previous week">◀</button>
+      <span class="week-label" id="weekLabel"></span>
+      <button type="button" class="btn btn-icon" id="nextWeek" aria-label="Next week">▶</button>
+      <button type="button" class="btn btn-secondary" id="todayBtn">Today</button>
+    </div>
 
-        <div class="form-row">
-          <div class="form-group">
-            <label for="category">Category</label>
-            <select id="category" required>
-              <option value="">Select category</option>
-              <option value="Breakfast">Breakfast</option>
-              <option value="Lunch">Lunch</option>
-              <option value="Dinner">Dinner</option>
-              <option value="Appetizer">Appetizer</option>
-              <option value="Dessert">Dessert</option>
-              <option value="Snack">Snack</option>
-              <option value="Other">Other</option>
-            </select>
-          </div>
-
-          <div class="form-group">
-            <label for="addedBy">Added by</label>
-            <select id="addedBy" required>
-              <option value="">Select who</option>
-              <option value="Logan">Logan</option>
-              <option value="Nadine">Nadine</option>
-              <option value="John C.">John C.</option>
-              <option value="Neileen">Neileen</option>
-              <option value="John A.">John A.</option>
-              <option value="Abbie">Abbie</option>
-              <option value="Tyler">Tyler</option>
-              <option value="Monica">Monica</option>
-            </select>
-          </div>
-        </div>
-
-        <div class="form-group">
-          <label for="photo">Front of Recipe Card (optional)</label>
-          <input type="file" id="photo" accept="image/*" capture="environment">
-        </div>
-
-        <div class="form-group">
-          <label for="photoBack">Back of Recipe Card (optional)</label>
-          <input type="file" id="photoBack" accept="image/*" capture="environment">
-        </div>
-
-        <div class="form-group">
-          <label for="notes">Notes (optional)</label>
-          <textarea id="notes" rows="2" placeholder="Any tips, what you liked, etc."></textarea>
-        </div>
-
-        <button type="submit" class="btn-primary">Add Recipe</button>
-      </form>
-    </section>
-
-    <!-- Search + Filters -->
-    <section class="controls">
-      <input type="search" id="searchInput" placeholder="Search recipes, people, or URLs…">
-      
-      <div class="filter-chips" id="filterChips">
-        <button type="button" class="chip active" data-category="All">All</button>
-        <button type="button" class="chip" data-category="Breakfast">Breakfast</button>
-        <button type="button" class="chip" data-category="Lunch">Lunch</button>
-        <button type="button" class="chip" data-category="Dinner">Dinner</button>
-        <button type="button" class="chip" data-category="Appetizer">Appetizer</button>
-        <button type="button" class="chip" data-category="Dessert">Dessert</button>
-        <button type="button" class="chip" data-category="Snack">Snack</button>
-        <button type="button" class="chip" data-category="Other">Other</button>
+    <!-- PLAN -->
+    <section class="panel active" id="panel-plan" role="tabpanel">
+      <div class="toolbar">
+        <button type="button" class="btn btn-primary" id="generateBtn">Fill empty slots</button>
+        <button type="button" class="btn btn-ghost" id="clearBtn">Clear week</button>
+      </div>
+      <div class="calendar-wrap">
+        <div class="calendar-grid" id="calendarGrid"></div>
       </div>
     </section>
 
-    <!-- Recipe List -->
-    <section class="recipe-list">
-      <h2>Family Recipes <span id="recipeCount"></span></h2>
-      <div id="recipesContainer"></div>
+    <!-- RECIPES -->
+    <section class="panel" id="panel-recipes" role="tabpanel" hidden>
+      <section class="add-form">
+        <h2 id="recipeFormTitle">Add a Recipe</h2>
+        <form id="recipeForm">
+          <input type="hidden" id="recipeEditId">
+
+          <div class="form-group">
+            <label for="recipeName">Recipe Name</label>
+            <input type="text" id="recipeName" placeholder="e.g. Grandma's Chili" required>
+          </div>
+
+          <div class="form-group">
+            <label for="recipeUrl">Recipe URL (optional)</label>
+            <input type="url" id="recipeUrl" placeholder="https://... (leave blank if using photos)">
+            <div class="url-import-actions">
+              <button type="button" class="btn btn-secondary" id="importRecipeBtn">Pull ingredients from link</button>
+            </div>
+            <div class="paste-fallback hidden" id="pasteIngredientsWrap">
+              <label for="pasteIngredients">Paste ingredients (one per line)</label>
+              <textarea id="pasteIngredients" rows="5" placeholder="2 cups flour&#10;1 tsp salt&#10;1 lb chicken"></textarea>
+              <button type="button" class="btn btn-secondary" id="usePastedListBtn">Use pasted list</button>
+            </div>
+          </div>
+
+          <div class="form-row">
+            <div class="form-group">
+              <label for="category">Category</label>
+              <select id="category" required>
+                <option value="">Select category</option>
+                <option value="Breakfast">Breakfast</option>
+                <option value="Lunch">Lunch</option>
+                <option value="Dinner">Dinner</option>
+                <option value="Appetizer">Appetizer</option>
+                <option value="Dessert">Dessert</option>
+                <option value="Snack">Snack</option>
+                <option value="Other">Other</option>
+              </select>
+            </div>
+            <div class="form-group">
+              <label for="addedBy">Added by</label>
+              <select id="addedBy" required>
+                <option value="">Select who</option>
+              </select>
+            </div>
+          </div>
+
+          <div class="form-group">
+            <label for="photo">Front of Recipe Card (optional)</label>
+            <input type="file" id="photo" accept="image/*" capture="environment">
+          </div>
+          <div class="form-group">
+            <label for="photoBack">Back of Recipe Card (optional)</label>
+            <input type="file" id="photoBack" accept="image/*" capture="environment">
+          </div>
+          <div class="form-group">
+            <label for="notes">Notes (optional)</label>
+            <textarea id="notes" rows="2" placeholder="Any tips, what you liked, etc."></textarea>
+          </div>
+
+          <details class="cook-details" id="cookDetails">
+            <summary>Cook details — ingredients, steps, time</summary>
+            <p class="hint">Any recipe can go on the calendar. Ingredients here are what show up on the grocery list.</p>
+
+            <label class="field-label">Meal types</label>
+            <div class="filter-chips" id="recipeTypeChips"></div>
+
+            <label class="field-label">Tags</label>
+            <div class="filter-chips" id="recipeTagChips"></div>
+
+            <div class="form-row">
+              <div class="form-group">
+                <label for="recipePrep">Prep (min)</label>
+                <input type="number" id="recipePrep" min="1" value="30">
+              </div>
+              <div class="form-group">
+                <label for="recipeServings">Servings</label>
+                <input type="number" id="recipeServings" min="1" value="6">
+              </div>
+            </div>
+
+            <label class="field-label">Ingredients</label>
+            <div id="ingredientRows"></div>
+            <button type="button" class="btn btn-ghost" id="addIngredientBtn">+ Add ingredient</button>
+
+            <div class="form-group">
+              <label for="recipePrepList">Prep (one item per line)</label>
+              <textarea id="recipePrepList" rows="2" placeholder="Dice onions"></textarea>
+            </div>
+            <div class="form-group">
+              <label for="recipeStepsList">Cooking steps (one per line)</label>
+              <textarea id="recipeStepsList" rows="4" placeholder="Brown the beef..."></textarea>
+            </div>
+            <div class="form-group">
+              <label for="recipeTips">Tips</label>
+              <textarea id="recipeTips" rows="2" placeholder="Double the recipe for leftovers"></textarea>
+            </div>
+          </details>
+
+          <div class="form-actions">
+            <button type="submit" class="btn btn-primary" id="saveRecipeBtn">Add Recipe</button>
+            <button type="button" class="btn btn-ghost hidden" id="cancelEditBtn">Cancel edit</button>
+          </div>
+        </form>
+      </section>
+
+      <section class="controls">
+        <input type="search" id="searchInput" placeholder="Search recipes, people, ingredients…">
+        <div class="filter-chips" id="filterChips"></div>
+      </section>
+
+      <section class="recipe-list">
+        <h2>Household Recipes <span id="recipeCount"></span></h2>
+        <div id="recipesContainer"></div>
+      </section>
+    </section>
+
+    <!-- GROCERY -->
+    <section class="panel" id="panel-grocery" role="tabpanel" hidden>
+      <div class="grocery-header">
+        <h2>Grocery List</h2>
+        <button type="button" class="btn btn-secondary" id="copyGroceryBtn">Copy list</button>
+      </div>
+      <p class="hint">Built from this week’s planned meals. Add a snack recipe without putting it on the calendar.</p>
+      <div class="grocery-add">
+        <input type="text" id="manualGroceryInput" placeholder="Add anything — bananas, foil, toothpaste" autocomplete="off">
+        <button type="button" class="btn btn-primary" id="manualGroceryBtn">Add</button>
+      </div>
+      <div class="toolbar">
+        <button type="button" class="btn btn-ghost" id="snacksBtn">Snack add-ons</button>
+      </div>
+      <div class="grocery-list" id="groceryList"></div>
     </section>
   </div>
 
+  <div class="toast" id="toast" role="status" aria-live="polite"></div>
+
+  <dialog class="modal" id="pickerModal">
+    <div class="modal-header">
+      <h2 id="pickerTitle">Choose a Meal</h2>
+      <button type="button" class="btn btn-icon modal-close" data-close="pickerModal" aria-label="Close">✕</button>
+    </div>
+    <div class="modal-body">
+      <div class="custom-meal-form">
+        <label class="field-label" for="customMealName">Or type a meal name</label>
+        <input type="text" class="search-input" id="customMealName" placeholder="e.g. Leftovers" autocomplete="off">
+        <label class="custom-meal-check">
+          <input type="checkbox" id="customSaveRecipe">
+          Also save to Recipes
+        </label>
+        <button type="button" class="btn btn-primary btn-block" id="customMealAddBtn">Add to Calendar</button>
+      </div>
+      <input type="search" class="search-input" id="pickerSearch" placeholder="Search recipes…">
+      <div class="filter-chips" id="pickerFilters"></div>
+      <ul class="meal-list" id="pickerMealList"></ul>
+      <button type="button" class="btn btn-ghost btn-block" id="clearSlotBtn">Clear this slot</button>
+    </div>
+  </dialog>
+
+  <dialog class="modal modal-wide" id="generateModal">
+    <div class="modal-header">
+      <h2>Fill Empty Slots</h2>
+      <button type="button" class="btn btn-icon modal-close" data-close="generateModal" aria-label="Close">✕</button>
+    </div>
+    <div class="modal-body">
+      <p class="hint">Only recipes with ingredients are used. Weekends favor batch-cook. Weekday breakfasts favor quick meals.</p>
+      <div class="filter-chips" id="generateFilters"></div>
+      <label class="field-label" for="generateTarget">Fill which slots?</label>
+      <select class="select-input" id="generateTarget">
+        <option value="all">All empty slots</option>
+        <option value="breakfast">Empty breakfasts</option>
+        <option value="lunch">Empty lunches</option>
+        <option value="dinner">Empty dinners</option>
+      </select>
+      <button type="button" class="btn btn-primary btn-block" id="fillWeekBtn">Fill selected slots</button>
+      <button type="button" class="btn btn-secondary btn-block" id="previewBtn">Preview suggestions</button>
+      <ul class="meal-list" id="previewList"></ul>
+    </div>
+  </dialog>
+
+  <dialog class="modal modal-wide" id="recipeModal">
+    <div class="modal-header">
+      <h2 id="recipeTitle">Recipe</h2>
+      <button type="button" class="btn btn-icon modal-close" data-close="recipeModal" aria-label="Close">✕</button>
+    </div>
+    <div class="modal-body">
+      <div class="recipe-meta" id="recipeMeta"></div>
+      <div id="recipePhotos"></div>
+      <div class="recipe-section">
+        <h3>Ingredients</h3>
+        <ul class="recipe-ingredients" id="recipeIngredients"></ul>
+      </div>
+      <div class="recipe-section" id="recipePrepSection">
+        <h3>Prep</h3>
+        <ul class="recipe-prep" id="recipePrepItems"></ul>
+      </div>
+      <div class="recipe-section">
+        <h3>Steps</h3>
+        <ol class="recipe-steps" id="recipeSteps"></ol>
+      </div>
+      <div class="recipe-tip" id="recipeTip"></div>
+      <div class="recipe-actions" id="recipeActions"></div>
+    </div>
+  </dialog>
+
+  <dialog class="modal" id="assignModal">
+    <div class="modal-header">
+      <h2>Assign to Calendar</h2>
+      <button type="button" class="btn btn-icon modal-close" data-close="assignModal" aria-label="Close">✕</button>
+    </div>
+    <div class="modal-body">
+      <p class="hint" id="assignWeekLabel"></p>
+      <div class="assign-week" id="assignWeek" role="group" aria-label="Day"></div>
+      <label class="field-label">Meal</label>
+      <div class="assign-slots" id="assignSlots" role="group" aria-label="Meal"></div>
+      <button type="button" class="btn btn-primary btn-block" id="confirmAssignBtn">Assign meal</button>
+    </div>
+  </dialog>
+
+  <dialog class="modal modal-wide" id="snacksModal">
+    <div class="modal-header">
+      <h2>Snack add-ons</h2>
+      <button type="button" class="btn btn-icon modal-close" data-close="snacksModal" aria-label="Close">✕</button>
+    </div>
+    <div class="modal-body">
+      <p class="hint">Adds ingredients to this week’s grocery list without occupying a meal slot.</p>
+      <input type="search" class="search-input" id="snackSearch" placeholder="Search snacks…">
+      <ul class="meal-list" id="snackList"></ul>
+    </div>
+  </dialog>
+
   <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
-  <script src="app.js"></script>
+  <script src="js/config.js?v=pull-ing-1"></script>
+  <script src="js/db.js?v=pull-ing-1"></script>
+  <script src="app.js?v=pull-ing-1"></script>
 </body>
 </html>

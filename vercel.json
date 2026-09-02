@@ -1,0 +1,7 @@
+{
+  "functions": {
+    "api/import-recipe.js": {
+      "maxDuration": 10
+    }
+  }
+}
