@@ -1189,21 +1189,140 @@ function renderRecipeList() {
 
 /* ---------- Grocery ---------- */
 
+const GROCERY_PREP_WORDS = new Set([
+  'minced', 'chopped', 'diced', 'sliced', 'grated', 'crushed', 'peeled', 'seeded',
+  'softened', 'melted', 'divided', 'optional', 'finely', 'roughly', 'fresh',
+  'large', 'small', 'medium', 'whole', 'thinly', 'coarsely', 'plus', 'more',
+  'taste', 'to', 'clove', 'cloves', 'packed', 'thawed', 'drained', 'rinsed',
+  'room', 'temperature', 'and', 'or', 'of', 'for', 'the'
+]);
+
+const QTY_UNIT_ALIASES = {
+  tsp: 'teaspoon',
+  tsps: 'teaspoon',
+  teaspoon: 'teaspoon',
+  teaspoons: 'teaspoon',
+  tbsp: 'tablespoon',
+  tbsps: 'tablespoon',
+  tbs: 'tablespoon',
+  tablespoon: 'tablespoon',
+  tablespoons: 'tablespoon',
+  cup: 'cup',
+  cups: 'cup',
+  lb: 'pound',
+  lbs: 'pound',
+  pound: 'pound',
+  pounds: 'pound',
+  oz: 'ounce',
+  ozs: 'ounce',
+  ounce: 'ounce',
+  ounces: 'ounce',
+  g: 'gram',
+  gram: 'gram',
+  grams: 'gram',
+  clove: 'clove',
+  cloves: 'clove',
+  can: 'can',
+  cans: 'can'
+};
+
+function groceryItemKey(item) {
+  const words = String(item || '')
+    .toLowerCase()
+    .replace(/&/g, ' and ')
+    .replace(/[^a-z0-9\s]/g, ' ')
+    .split(/\s+/)
+    .filter((w) => w && !GROCERY_PREP_WORDS.has(w));
+  return words.sort().join(' ');
+}
+
+function prettyGroceryName(key, originals) {
+  const unique = [...new Set((originals || []).map((s) => String(s || '').trim()).filter(Boolean))];
+  if (unique.length === 1) return unique[0];
+  if (!key) return unique[0] || '';
+  return key.replace(/\b\w/g, (ch) => ch.toUpperCase());
+}
+
+function qtyToNumber(raw) {
+  const s = String(raw || '').trim();
+  const mixed = s.match(/^(\d+)\s+(\d+)\/(\d+)$/);
+  if (mixed) return Number(mixed[1]) + Number(mixed[2]) / Number(mixed[3]);
+  const frac = s.match(/^(\d+)\/(\d+)$/);
+  if (frac) return Number(frac[1]) / Number(frac[2]);
+  const n = Number(s);
+  return Number.isFinite(n) ? n : null;
+}
+
+function parseQtyParts(raw) {
+  const s = String(raw || '').trim();
+  if (!s) return null;
+  const m = s.match(/^((?:\d+\s+)?\d+\/\d+|\d+\.\d+|\d+)\s*(.*)$/);
+  if (!m) return null;
+  const n = qtyToNumber(m[1]);
+  if (n == null) return null;
+  const unitRaw = (m[2] || '').trim().toLowerCase().replace(/[.,]$/, '');
+  const unit = QTY_UNIT_ALIASES[unitRaw] || unitRaw;
+  return { n, unit };
+}
+
+function formatQtyNumber(n) {
+  if (Number.isInteger(n)) return String(n);
+  const rounded = Math.round(n * 100) / 100;
+  return String(rounded);
+}
+
+function pluralUnit(unit, n) {
+  if (!unit) return '';
+  if (n === 1) return unit;
+  if (unit.endsWith('s')) return unit;
+  return unit + 's';
+}
+
+function formatQtys(qtys) {
+  const raw = (qtys || []).map((q) => String(q || '').trim()).filter(Boolean);
+  if (!raw.length) return '';
+  const parsed = raw.map(parseQtyParts);
+  if (parsed.length >= 2 && parsed.every((p) => p && p.unit === parsed[0].unit)) {
+    const sum = parsed.reduce((acc, p) => acc + p.n, 0);
+    const unit = parsed[0].unit;
+    return (formatQtyNumber(sum) + (unit ? ' ' + pluralUnit(unit, sum) : '')).trim();
+  }
+  return raw.join(' + ');
+}
+
 function addGroceryItem(items, ing, recipeName) {
   const itemName = (ing.item || '').trim();
   if (!itemName) return;
   const source = (recipeName || '').trim();
-  const key = itemName.toLowerCase() + '::' + source.toLowerCase();
+  const key = groceryItemKey(itemName);
+  if (!key) return;
   if (!items[key]) {
-    items[key] = { item: itemName, qtys: [ing.qty], section: ing.section || 'other', recipeName: source };
-  } else if (ing.qty && !items[key].qtys.includes(ing.qty)) {
-    items[key].qtys.push(ing.qty);
+    items[key] = {
+      key,
+      item: itemName,
+      originals: [itemName],
+      qtys: ing.qty ? [ing.qty] : [],
+      section: ing.section || 'other',
+      recipeNames: source ? [source] : []
+    };
+    return;
+  }
+  const row = items[key];
+  if (!row.originals.includes(itemName)) row.originals.push(itemName);
+  if (ing.qty && !row.qtys.includes(ing.qty)) row.qtys.push(ing.qty);
+  if (source && !row.recipeNames.includes(source)) row.recipeNames.push(source);
+  if ((!row.section || row.section === 'other') && ing.section && ing.section !== 'other') {
+    row.section = ing.section;
   }
 }
 
 function groceryItemLabel(entry) {
-  const name = entry.recipeName ? `${entry.item} (${entry.recipeName}.)` : entry.item;
-  const qty = (entry.qtys || []).filter(Boolean).join(' + ');
+  const recipes = [...(entry.recipeNames || (entry.recipeName ? [entry.recipeName] : []))].sort((a, b) =>
+    a.localeCompare(b)
+  );
+  const item = prettyGroceryName(entry.key || groceryItemKey(entry.item), entry.originals || [entry.item]);
+  const name = recipes.length ? `${item} (${recipes.join(', ')})` : item;
+  const qty = formatQtys(entry.qtys);
   return qty ? `${name} — ${qty}` : name;
 }
 
@@ -1277,8 +1396,9 @@ function renderGrocery() {
       kind: 'recipe',
       key,
       item: item.item,
+      originals: item.originals,
       qtys: item.qtys,
-      recipeName: item.recipeName
+      recipeNames: item.recipeNames
     });
   });
   manuals.forEach((manual) => {
@@ -1341,14 +1461,11 @@ function renderGrocery() {
   });
 }
 
-function copyGroceryList() {
+function buildGroceryText() {
   const items = getGroceryItems();
   const keys = Object.keys(items);
   const manuals = state.manualItems || [];
-  if (!keys.length && !manuals.length) {
-    showToast('Nothing to copy yet.');
-    return;
-  }
+  if (!keys.length && !manuals.length) return '';
   const grouped = {};
   keys.forEach((key) => {
     const item = items[key];
@@ -1369,7 +1486,117 @@ function copyGroceryList() {
     });
     text += '\n';
   });
-  navigator.clipboard.writeText(text.trim()).then(() => showToast('Grocery list copied.'));
+  return text.trim();
+}
+
+function copyGroceryList() {
+  const text = buildGroceryText();
+  if (!text) {
+    showToast('Nothing to copy yet.');
+    return;
+  }
+  navigator.clipboard.writeText(text).then(() => showToast('Grocery list copied.'));
+}
+
+async function shareGroceryList() {
+  const text = buildGroceryText();
+  if (!text) {
+    showToast('Nothing to share yet.');
+    return;
+  }
+  if (navigator.share) {
+    try {
+      await navigator.share({ title: 'Family grocery list', text });
+      return;
+    } catch (err) {
+      if (err && err.name === 'AbortError') return;
+    }
+  }
+  try {
+    await navigator.clipboard.writeText(text);
+    showToast('Copied — paste into Reminders');
+  } catch (err) {
+    console.error(err);
+    showToast('Could not share the list.');
+  }
+}
+
+function pad2(n) {
+  return String(n).padStart(2, '0');
+}
+
+function icsEscape(value) {
+  return String(value || '')
+    .replace(/\\/g, '\\\\')
+    .replace(/;/g, '\\;')
+    .replace(/,/g, '\\,')
+    .replace(/\r?\n/g, '\\n');
+}
+
+function icsLocalStamp(date, hour, minute) {
+  return (
+    `${date.getFullYear()}${pad2(date.getMonth() + 1)}${pad2(date.getDate())}` +
+    `T${pad2(hour)}${pad2(minute)}00`
+  );
+}
+
+function icsUtcNow() {
+  const d = new Date();
+  return (
+    `${d.getUTCFullYear()}${pad2(d.getUTCMonth() + 1)}${pad2(d.getUTCDate())}` +
+    `T${pad2(d.getUTCHours())}${pad2(d.getUTCMinutes())}${pad2(d.getUTCSeconds())}Z`
+  );
+}
+
+function downloadWeekIcs() {
+  const times = { breakfast: [7, 30], lunch: [12, 0], dinner: [18, 0] };
+  const stamp = icsUtcNow();
+  const events = [];
+  C.DAYS.forEach((day, index) => {
+    C.MEAL_SLOTS.forEach((slot) => {
+      const val = slotValue(state.plan, day, slot);
+      if (!val) return;
+      const name = slotName(val);
+      if (!name) return;
+      const date = getDayDate(state.weekStart, index);
+      const [hour, minute] = times[slot] || [18, 0];
+      const uid = `family-plan-${state.weekStart}-${day}-${slot}@family-planner`;
+      events.push(
+        [
+          'BEGIN:VEVENT',
+          `UID:${uid}`,
+          `DTSTAMP:${stamp}`,
+          `DTSTART:${icsLocalStamp(date, hour, minute)}`,
+          'DURATION:PT1H',
+          `SUMMARY:${icsEscape(name)}`,
+          'DESCRIPTION:From Family Planner',
+          'END:VEVENT'
+        ].join('\r\n')
+      );
+    });
+  });
+  if (!events.length) {
+    showToast('No meals on this week to add.');
+    return;
+  }
+  const ics = [
+    'BEGIN:VCALENDAR',
+    'VERSION:2.0',
+    'PRODID:-//Family Planner//EN',
+    'CALSCALE:GREGORIAN',
+    ...events,
+    'END:VCALENDAR'
+  ].join('\r\n') + '\r\n';
+  const blob = new Blob([ics], { type: 'text/calendar;charset=utf-8' });
+  const href = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = href;
+  a.download = `family-plan-${state.weekStart}.ics`;
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  URL.revokeObjectURL(href);
+  showToast('Calendar file downloaded.');
 }
 
 function renderSnackList() {
@@ -1472,6 +1699,8 @@ async function init() {
   });
   initCalendarDrag();
   document.getElementById('copyGroceryBtn').addEventListener('click', copyGroceryList);
+  document.getElementById('shareGroceryBtn').addEventListener('click', shareGroceryList);
+  document.getElementById('calendarWeekBtn').addEventListener('click', downloadWeekIcs);
   document.getElementById('snacksBtn').addEventListener('click', () => {
     document.getElementById('snackSearch').value = '';
     renderSnackList();

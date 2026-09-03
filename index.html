@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
   <meta name="apple-mobile-web-app-capable" content="yes">
   <title>Family Planner</title>
-  <link rel="stylesheet" href="styles.css?v=pull-ing-1">
+  <link rel="stylesheet" href="styles.css?v=combine-share-1">
 </head>
 <body>
   <div class="page-bg"></div>
@@ -36,6 +36,7 @@
     <section class="panel active" id="panel-plan" role="tabpanel">
       <div class="toolbar">
         <button type="button" class="btn btn-primary" id="generateBtn">Fill empty slots</button>
+        <button type="button" class="btn btn-secondary" id="calendarWeekBtn">Add week to Calendar</button>
         <button type="button" class="btn btn-ghost" id="clearBtn">Clear week</button>
       </div>
       <div class="calendar-wrap">
@@ -164,9 +165,13 @@
     <section class="panel" id="panel-grocery" role="tabpanel" hidden>
       <div class="grocery-header">
         <h2>Grocery List</h2>
-        <button type="button" class="btn btn-secondary" id="copyGroceryBtn">Copy list</button>
+        <div class="grocery-actions">
+          <button type="button" class="btn btn-secondary" id="copyGroceryBtn">Copy list</button>
+          <button type="button" class="btn btn-secondary" id="shareGroceryBtn">Share list</button>
+        </div>
       </div>
       <p class="hint">Built from this week’s planned meals. Add a snack recipe without putting it on the calendar.</p>
+      <p class="hint">On iPhone: Share list → Reminders. Calendar file imports into the Calendar app.</p>
       <div class="grocery-add">
         <input type="text" id="manualGroceryInput" placeholder="Add anything — bananas, foil, toothpaste" autocomplete="off">
         <button type="button" class="btn btn-primary" id="manualGroceryBtn">Add</button>
@@ -275,8 +280,8 @@
   </dialog>
 
   <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
-  <script src="js/config.js?v=pull-ing-1"></script>
-  <script src="js/db.js?v=pull-ing-1"></script>
-  <script src="app.js?v=pull-ing-1"></script>
+  <script src="js/config.js?v=combine-share-1"></script>
+  <script src="js/db.js?v=combine-share-1"></script>
+  <script src="app.js?v=combine-share-1"></script>
 </body>
 </html>

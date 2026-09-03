@@ -530,6 +530,12 @@ textarea { min-height: unset; }
   flex-wrap: wrap;
 }
 
+.grocery-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
 .grocery-add {
   display: flex;
   gap: 8px;
