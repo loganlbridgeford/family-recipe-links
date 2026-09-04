@@ -209,21 +209,33 @@ function todayDayKey() {
 function mealCellContent(val, slot) {
   const slotHtml = `<span class="meal-cell-slot">${escapeHtml(C.SLOT_LABELS[slot])}</span>`;
   if (val && val.type === 'custom') {
-    return { className: 'meal-cell filled custom', html: `${slotHtml}<span class="meal-cell-name">${escapeHtml(val.name)}</span>` };
+    return {
+      className: 'meal-cell',
+      rowClass: 'meal-row filled custom',
+      html: `${slotHtml}<span class="meal-cell-name">${escapeHtml(val.name)}</span>`,
+      hasGrip: true
+    };
   }
   if (val && val.type === 'recipe' && val.recipe) {
     const meal = val.recipe;
     const batch = (meal.tags || []).includes('batch-cook');
     return {
-      className: 'meal-cell filled',
+      className: 'meal-cell',
+      rowClass: 'meal-row filled',
       html: `${slotHtml}<span class="meal-cell-name">${escapeHtml(meal.name)}</span>
         <span class="meal-cell-meta">
           ${meal.prep_minutes ? `<span class="badge badge-time">${meal.prep_minutes} min</span>` : ''}
           ${batch ? '<span class="badge badge-batch">Batch</span>' : ''}
-        </span>`
+        </span>`,
+      hasGrip: true
     };
   }
-  return { className: 'meal-cell', html: `${slotHtml}<span class="meal-cell-placeholder">Add</span>` };
+  return {
+    className: 'meal-cell',
+    rowClass: 'meal-row',
+    html: `${slotHtml}<span class="meal-cell-placeholder">Add</span>`,
+    hasGrip: false
+  };
 }
 
 function bindMealCell(cell, day, slot, val) {
@@ -281,15 +293,32 @@ function renderCalendar() {
     block.appendChild(header);
     C.MEAL_SLOTS.forEach((slot) => {
       const val = slotValue(state.plan, day, slot);
+      const painted = mealCellContent(val, slot);
+      const row = document.createElement('div');
+      row.className = painted.rowClass;
+      row.dataset.day = day;
+      row.dataset.slot = slot;
       const cell = document.createElement('button');
       cell.type = 'button';
+      cell.className = painted.className;
       cell.dataset.day = day;
       cell.dataset.slot = slot;
-      const painted = mealCellContent(val, slot);
-      cell.className = painted.className;
       cell.innerHTML = painted.html;
       bindMealCell(cell, day, slot, val);
-      block.appendChild(cell);
+      row.appendChild(cell);
+      if (painted.hasGrip) {
+        const grip = document.createElement('button');
+        grip.type = 'button';
+        grip.className = 'meal-grip';
+        grip.setAttribute('aria-label', 'Hold one second, then drag to move');
+        grip.innerHTML = '<i></i><i></i><i></i>';
+        grip.addEventListener('click', (e) => {
+          e.preventDefault();
+          e.stopPropagation();
+        });
+        row.appendChild(grip);
+      }
+      block.appendChild(row);
     });
     grid.appendChild(block);
   });
@@ -465,50 +494,88 @@ function moveSlot(fromDay, fromSlot, toDay, toSlot) {
 
 function cellFromPoint(x, y) {
   const el = document.elementFromPoint(x, y);
-  return el && el.closest ? el.closest('#calendarGrid .meal-cell') : null;
+  return el && el.closest ? el.closest('#calendarGrid .meal-row') : null;
 }
 
 function endDrag() {
+  if (drag && drag.timer) clearTimeout(drag.timer);
   if (drag && drag.ghost) drag.ghost.remove();
-  document.querySelectorAll('.meal-cell.drag-source, .meal-cell.drag-over').forEach((el) => {
-    el.classList.remove('drag-source', 'drag-over');
+  document.querySelectorAll('.meal-row.drag-source, .meal-row.drag-over, .meal-row.drag-armed, .meal-row.drag-holding').forEach((el) => {
+    el.classList.remove('drag-source', 'drag-over', 'drag-armed', 'drag-holding');
   });
-  if (drag && drag.mode === 'active') suppressClickUntil = Date.now() + 400;
+  document.body.classList.remove('is-meal-dragging');
+  if (drag && (drag.mode === 'active' || drag.mode === 'armed')) suppressClickUntil = Date.now() + 400;
   drag = null;
+}
+
+function beginMealDrag() {
+  if (!drag || drag.mode === 'active') return;
+  drag.mode = 'active';
+  drag.row.classList.add('drag-source');
+  drag.row.classList.remove('drag-armed', 'drag-holding');
+  document.body.classList.add('is-meal-dragging');
+  const ghost = document.createElement('div');
+  ghost.className = 'meal-drag-ghost';
+  ghost.textContent = slotName(slotValue(state.plan, drag.day, drag.slot));
+  document.body.appendChild(ghost);
+  ghost.style.left = `${drag.x}px`;
+  ghost.style.top = `${drag.y}px`;
+  drag.ghost = ghost;
 }
 
 function onGridPointerDown(e) {
   if (e.button != null && e.button !== 0) return;
-  const cell = e.target.closest('.meal-cell');
-  if (!cell) return;
-  const { day, slot } = cell.dataset;
+  const grip = e.target.closest('.meal-grip');
+  if (!grip) return;
+  const row = grip.closest('.meal-row');
+  if (!row) return;
+  const { day, slot } = row.dataset;
   const val = slotValue(state.plan, day, slot);
   if (!val || (val.type === 'recipe' && !val.recipe)) return;
-  drag = { mode: 'pending', day, slot, x: e.clientX, y: e.clientY, cell, pointerId: e.pointerId };
+  e.preventDefault();
+  e.stopPropagation();
+  drag = {
+    mode: 'holding',
+    day,
+    slot,
+    x: e.clientX,
+    y: e.clientY,
+    row,
+    pointerId: e.pointerId,
+    timer: null
+  };
+  row.classList.add('drag-holding');
+  try {
+    grip.setPointerCapture(e.pointerId);
+  } catch (_) { /* ignore */ }
+  drag.timer = setTimeout(() => {
+    if (!drag || drag.mode !== 'holding') return;
+    drag.mode = 'armed';
+    drag.row.classList.add('drag-armed');
+    drag.row.classList.remove('drag-holding');
+    try {
+      if (navigator.vibrate) navigator.vibrate(12);
+    } catch (_) { /* ignore */ }
+  }, 1000);
 }
 
 function onGridPointerMove(e) {
   if (!drag) return;
   const dx = e.clientX - drag.x;
   const dy = e.clientY - drag.y;
-  if (drag.mode === 'pending') {
-    if (dx * dx + dy * dy < 144) return;
-    drag.mode = 'active';
-    drag.cell.classList.add('drag-source');
-    const ghost = document.createElement('div');
-    ghost.className = 'meal-drag-ghost';
-    ghost.textContent = slotName(slotValue(state.plan, drag.day, drag.slot));
-    document.body.appendChild(ghost);
-    drag.ghost = ghost;
-    try {
-      drag.cell.setPointerCapture(e.pointerId);
-    } catch (_) { /* ignore */ }
+  if (drag.mode === 'holding') {
+    if (dx * dx + dy * dy > 144) endDrag();
+    return;
+  }
+  if (drag.mode === 'armed') {
+    if (dx * dx + dy * dy < 36) return;
+    beginMealDrag();
   }
   if (drag.mode !== 'active') return;
   e.preventDefault();
   drag.ghost.style.left = `${e.clientX}px`;
   drag.ghost.style.top = `${e.clientY}px`;
-  document.querySelectorAll('.meal-cell.drag-over').forEach((el) => el.classList.remove('drag-over'));
+  document.querySelectorAll('.meal-row.drag-over').forEach((el) => el.classList.remove('drag-over'));
   const over = cellFromPoint(e.clientX, e.clientY);
   if (over && (over.dataset.day !== drag.day || over.dataset.slot !== drag.slot)) {
     over.classList.add('drag-over');
@@ -529,6 +596,10 @@ function onGridPointerUp(e) {
 function initCalendarDrag() {
   const grid = document.getElementById('calendarGrid');
   grid.addEventListener('pointerdown', onGridPointerDown);
+  grid.addEventListener('contextmenu', (e) => {
+    if (e.target.closest('.meal-grip, .meal-row')) e.preventDefault();
+  });
+  grid.addEventListener('selectstart', (e) => e.preventDefault());
   window.addEventListener('pointermove', onGridPointerMove, { passive: false });
   window.addEventListener('pointerup', onGridPointerUp);
   window.addEventListener('pointercancel', endDrag);
@@ -1398,6 +1469,17 @@ function groceryItemLabel(entry) {
   return parts.sub ? `${parts.name} (${parts.sub})` : parts.name;
 }
 
+function hiddenGroceryKeys() {
+  const hidden = state.groceryChecked && state.groceryChecked.__hidden;
+  return Array.isArray(hidden) ? hidden : [];
+}
+
+function hideGroceryKey(key) {
+  const hidden = hiddenGroceryKeys();
+  if (!hidden.includes(key)) hidden.push(key);
+  state.groceryChecked.__hidden = hidden;
+}
+
 function getGroceryItems() {
   const items = {};
   C.DAYS.forEach((day) => {
@@ -1413,6 +1495,9 @@ function getGroceryItems() {
       (meal.ingredients || []).forEach((ing) => addGroceryItem(items, ing, meal.name));
     }
   });
+  hiddenGroceryKeys().forEach((key) => {
+    delete items[key];
+  });
   return items;
 }
 
@@ -1427,6 +1512,122 @@ function guessGrocerySection(name) {
     }
   }
   return 'other';
+}
+
+const SWIPE_DELETE_WIDTH = 88;
+let grocerySwipe = null;
+let suppressGroceryClickUntil = 0;
+
+function swipeTranslate(front) {
+  const m = /translateX\((-?\d+(?:\.\d+)?)px\)/.exec(front.style.transform || '');
+  return m ? Number(m[1]) : 0;
+}
+
+function closeOpenGrocerySwipe() {
+  if (!grocerySwipe || !grocerySwipe.opened) return;
+  const front = grocerySwipe.opened.querySelector('.swipe-front');
+  if (front) {
+    front.style.transition = 'transform 0.2s ease';
+    front.style.transform = 'translateX(0)';
+  }
+  grocerySwipe.opened = null;
+}
+
+function initGrocerySwipe() {
+  const list = document.getElementById('groceryList');
+  if (!list || list.dataset.swipeReady) return;
+  list.dataset.swipeReady = '1';
+  grocerySwipe = { tracking: false, opened: null };
+
+  list.addEventListener('pointerdown', (e) => {
+    if (e.button != null && e.button !== 0) return;
+    if (e.target.closest('.swipe-delete')) return;
+    const wrap = e.target.closest('.swipe-row');
+    const front = wrap && wrap.querySelector('.swipe-front');
+    if (!wrap || !front) return;
+    if (grocerySwipe.opened && grocerySwipe.opened !== wrap) closeOpenGrocerySwipe();
+    grocerySwipe.tracking = true;
+    grocerySwipe.wrap = wrap;
+    grocerySwipe.front = front;
+    grocerySwipe.startX = e.clientX;
+    grocerySwipe.startY = e.clientY;
+    grocerySwipe.startTx = swipeTranslate(front);
+    grocerySwipe.axis = null;
+    grocerySwipe.dx = grocerySwipe.startTx;
+    front.style.transition = 'none';
+  });
+
+  window.addEventListener('pointermove', (e) => {
+    if (!grocerySwipe || !grocerySwipe.tracking) return;
+    const mx = e.clientX - grocerySwipe.startX;
+    const my = e.clientY - grocerySwipe.startY;
+    if (!grocerySwipe.axis) {
+      if (Math.abs(mx) < 10 && Math.abs(my) < 10) return;
+      grocerySwipe.axis = Math.abs(mx) > Math.abs(my) ? 'x' : 'y';
+      if (grocerySwipe.axis === 'y') {
+        grocerySwipe.tracking = false;
+        return;
+      }
+      try {
+        grocerySwipe.front.setPointerCapture(e.pointerId);
+      } catch (_) { /* ignore */ }
+      grocerySwipe.front.style.touchAction = 'none';
+    }
+    if (grocerySwipe.axis !== 'x') return;
+    e.preventDefault();
+    grocerySwipe.dx = Math.min(0, Math.max(-SWIPE_DELETE_WIDTH - 28, grocerySwipe.startTx + mx));
+    grocerySwipe.front.style.transform = `translateX(${grocerySwipe.dx}px)`;
+  }, { passive: false });
+
+  function endGrocerySwipe() {
+    if (!grocerySwipe || !grocerySwipe.tracking) return;
+    const { front, wrap, axis, dx } = grocerySwipe;
+    grocerySwipe.tracking = false;
+    if (front) front.style.touchAction = 'pan-y';
+    if (axis !== 'x' || !front || !wrap) {
+      grocerySwipe.front = null;
+      grocerySwipe.wrap = null;
+      grocerySwipe.axis = null;
+      return;
+    }
+    suppressGroceryClickUntil = Date.now() + 350;
+    if (dx <= -120) {
+      const del = wrap.querySelector('.swipe-delete');
+      grocerySwipe.front = null;
+      grocerySwipe.wrap = null;
+      grocerySwipe.opened = null;
+      if (del) del.click();
+      return;
+    }
+    if (dx < -SWIPE_DELETE_WIDTH * 0.45) {
+      front.style.transition = 'transform 0.2s ease';
+      front.style.transform = `translateX(${-SWIPE_DELETE_WIDTH}px)`;
+      grocerySwipe.opened = wrap;
+    } else {
+      front.style.transition = 'transform 0.2s ease';
+      front.style.transform = 'translateX(0)';
+      if (grocerySwipe.opened === wrap) grocerySwipe.opened = null;
+    }
+    grocerySwipe.front = null;
+    grocerySwipe.wrap = null;
+    grocerySwipe.axis = null;
+  }
+
+  window.addEventListener('pointerup', endGrocerySwipe);
+  window.addEventListener('pointercancel', endGrocerySwipe);
+
+  list.addEventListener('click', (e) => {
+    if (Date.now() < suppressGroceryClickUntil) {
+      e.preventDefault();
+      e.stopPropagation();
+      return;
+    }
+    if (!grocerySwipe || !grocerySwipe.opened) return;
+    if (e.target.closest('.swipe-delete')) return;
+    e.preventDefault();
+    e.stopPropagation();
+    closeOpenGrocerySwipe();
+  }, true);
 }
 
 function addManualGrocery() {
@@ -1449,6 +1650,7 @@ function addManualGrocery() {
 }
 
 function renderGrocery() {
+  if (grocerySwipe) grocerySwipe.opened = null;
   const container = document.getElementById('groceryList');
   const items = getGroceryItems();
   const manuals = state.manualItems || [];
@@ -1462,6 +1664,7 @@ function renderGrocery() {
     grouped[s] = [];
   });
   keys.forEach((key) => {
+    if (key === '__hidden') return;
     const item = items[key];
     const section = grouped[item.section] ? item.section : 'other';
     grouped[section].push({
@@ -1490,30 +1693,38 @@ function renderGrocery() {
     const itemList = document.createElement('div');
     itemList.className = 'grocery-items';
     sectionItems.forEach((entry) => {
+      const wrap = document.createElement('div');
+      wrap.className = 'swipe-row';
+      const del = document.createElement('button');
+      del.type = 'button';
+      del.className = 'swipe-delete';
+      del.textContent = 'Delete';
       const row = document.createElement('div');
+      row.className = 'swipe-front grocery-item';
       if (entry.kind === 'manual') {
         const checked = !!entry.checked;
-        row.className = 'grocery-item' + (checked ? ' checked' : '');
+        if (checked) row.classList.add('checked');
         const id = 'm-' + String(entry.id).replace(/\W/g, '-');
         row.innerHTML = `
           <input type="checkbox" id="${id}" ${checked ? 'checked' : ''}>
-          <label for="${id}">${escapeHtml(entry.item)}${entry.qty ? ' — ' + escapeHtml(entry.qty) : ''} <span class="badge badge-added">Added</span></label>
-          <button type="button" class="btn btn-icon btn-sm remove-manual" aria-label="Remove">✕</button>`;
+          <label for="${id}">
+            <span class="grocery-name">${escapeHtml(entry.item)}${entry.qty ? ' — ' + escapeHtml(entry.qty) : ''}</span>
+            <span class="grocery-sub">Added</span>
+          </label>`;
         row.querySelector('input').addEventListener('change', (e) => {
           const found = state.manualItems.find((m) => m.id === entry.id);
           if (found) found.checked = e.target.checked;
           row.classList.toggle('checked', e.target.checked);
           scheduleSave();
         });
-        row.querySelector('.remove-manual').addEventListener('click', (e) => {
-          e.stopPropagation();
+        del.addEventListener('click', () => {
           state.manualItems = state.manualItems.filter((m) => m.id !== entry.id);
           renderGrocery();
           scheduleSave();
         });
       } else {
         const checked = !!state.groceryChecked[entry.key];
-        row.className = 'grocery-item' + (checked ? ' checked' : '');
+        if (checked) row.classList.add('checked');
         const id = 'g-' + entry.key.replace(/\W/g, '-');
         const parts = groceryItemParts(entry);
         row.innerHTML = `
@@ -1527,8 +1738,15 @@ function renderGrocery() {
           row.classList.toggle('checked', e.target.checked);
           scheduleSave();
         });
+        del.addEventListener('click', () => {
+          hideGroceryKey(entry.key);
+          renderGrocery();
+          scheduleSave();
+        });
       }
-      itemList.appendChild(row);
+      wrap.appendChild(del);
+      wrap.appendChild(row);
+      itemList.appendChild(wrap);
     });
     group.appendChild(title);
     group.appendChild(itemList);
@@ -1778,6 +1996,7 @@ async function init() {
     }
   });
   initCalendarDrag();
+  initGrocerySwipe();
   document.getElementById('copyGroceryBtn').addEventListener('click', copyGroceryList);
   document.getElementById('shareGroceryBtn').addEventListener('click', shareGroceryList);
   document.getElementById('calendarWeekBtn').addEventListener('click', () => {
