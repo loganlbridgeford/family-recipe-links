@@ -165,75 +165,135 @@ function renderWeekLabel() {
   document.getElementById('weekLabel').textContent = formatWeekLabel(state.weekStart);
 }
 
+function prefersReducedMotion() {
+  return window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+}
+
 function setTab(name) {
-  document.querySelectorAll('.tab').forEach((tab) => {
-    const on = tab.dataset.tab === name;
-    tab.classList.toggle('active', on);
-    tab.setAttribute('aria-selected', on ? 'true' : 'false');
-  });
-  document.querySelectorAll('.panel').forEach((panel) => {
-    const on = panel.id === `panel-${name}`;
-    panel.hidden = !on;
-    panel.classList.toggle('active', on);
-  });
-  document.getElementById('weekBar').hidden = name === 'recipes';
+  const apply = () => {
+    document.querySelectorAll('.tab').forEach((tab) => {
+      const on = tab.dataset.tab === name;
+      tab.classList.toggle('active', on);
+      tab.setAttribute('aria-selected', on ? 'true' : 'false');
+    });
+    document.querySelectorAll('.panel').forEach((panel) => {
+      const on = panel.id === `panel-${name}`;
+      panel.hidden = !on;
+      panel.classList.toggle('active', on);
+    });
+    const planHeader = document.getElementById('header-plan');
+    const recipesHeader = document.getElementById('header-recipes');
+    const groceryHeader = document.getElementById('header-grocery');
+    if (planHeader) planHeader.hidden = name !== 'plan';
+    if (recipesHeader) recipesHeader.hidden = name !== 'recipes';
+    if (groceryHeader) groceryHeader.hidden = name !== 'grocery';
+  };
+  if (document.startViewTransition && !prefersReducedMotion()) {
+    document.startViewTransition(apply);
+  } else {
+    apply();
+  }
 }
 
 /* ---------- Calendar ---------- */
 
+function todayDayKey() {
+  const monday = parseDate(state.weekStart);
+  const now = new Date();
+  now.setHours(0, 0, 0, 0);
+  const diff = Math.round((now - monday) / 86400000);
+  if (diff < 0 || diff > 6) return null;
+  return C.DAYS[diff];
+}
+
+function mealCellContent(val, slot) {
+  const slotHtml = `<span class="meal-cell-slot">${escapeHtml(C.SLOT_LABELS[slot])}</span>`;
+  if (val && val.type === 'custom') {
+    return { className: 'meal-cell filled custom', html: `${slotHtml}<span class="meal-cell-name">${escapeHtml(val.name)}</span>` };
+  }
+  if (val && val.type === 'recipe' && val.recipe) {
+    const meal = val.recipe;
+    const batch = (meal.tags || []).includes('batch-cook');
+    return {
+      className: 'meal-cell filled',
+      html: `${slotHtml}<span class="meal-cell-name">${escapeHtml(meal.name)}</span>
+        <span class="meal-cell-meta">
+          ${meal.prep_minutes ? `<span class="badge badge-time">${meal.prep_minutes} min</span>` : ''}
+          ${batch ? '<span class="badge badge-batch">Batch</span>' : ''}
+        </span>`
+    };
+  }
+  return { className: 'meal-cell', html: `${slotHtml}<span class="meal-cell-placeholder">Add</span>` };
+}
+
+function bindMealCell(cell, day, slot, val) {
+  cell.addEventListener('click', () => {
+    if (Date.now() < suppressClickUntil) return;
+    if (val && val.type === 'recipe' && val.recipe) {
+      openRecipeCard(val.recipe.id, { fromCalendar: true, day, slot });
+    } else {
+      openPicker(day, slot);
+    }
+  });
+}
+
+function renderTonight() {
+  const el = document.getElementById('tonightStrip');
+  if (!el) return;
+  const day = todayDayKey();
+  if (!day) {
+    el.hidden = true;
+    el.innerHTML = '';
+    return;
+  }
+  el.hidden = false;
+  const label = C.DAY_LABELS[C.DAYS.indexOf(day)];
+  el.innerHTML = `<h2>Tonight · ${label}</h2>`;
+  C.MEAL_SLOTS.forEach((slot) => {
+    const val = slotValue(state.plan, day, slot);
+    const row = document.createElement('button');
+    row.type = 'button';
+    row.className = 'tonight-row';
+    const name = val ? slotName(val) : 'Add';
+    row.innerHTML = `<span class="tonight-slot">${escapeHtml(C.SLOT_LABELS[slot])}</span><span class="tonight-name${val ? '' : ' empty'}">${escapeHtml(name)}</span>`;
+    row.addEventListener('click', () => {
+      if (val && val.type === 'recipe' && val.recipe) {
+        openRecipeCard(val.recipe.id, { fromCalendar: true, day, slot });
+      } else {
+        openPicker(day, slot);
+      }
+    });
+    el.appendChild(row);
+  });
+}
+
 function renderCalendar() {
   const grid = document.getElementById('calendarGrid');
   grid.innerHTML = '';
-  grid.appendChild(document.createElement('div'));
-
+  const todayKey = todayDayKey();
   C.DAYS.forEach((day, i) => {
-    const header = document.createElement('div');
-    header.className = 'cal-day-header';
+    const block = document.createElement('section');
+    block.className = 'day-block';
     const date = getDayDate(state.weekStart, i);
-    header.innerHTML = `${C.DAY_LABELS[i]}<span class="date-num">${date.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}</span>`;
-    grid.appendChild(header);
-  });
-
-  C.MEAL_SLOTS.forEach((slot) => {
-    const label = document.createElement('div');
-    label.className = 'cal-row-label';
-    label.textContent = C.SLOT_LABELS[slot];
-    grid.appendChild(label);
-
-    C.DAYS.forEach((day) => {
+    const header = document.createElement('div');
+    header.className = 'day-block-header' + (day === todayKey ? ' today' : '');
+    header.innerHTML = `<span>${C.DAY_LABELS[i]}</span><span class="date-num">${date.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}</span>`;
+    block.appendChild(header);
+    C.MEAL_SLOTS.forEach((slot) => {
       const val = slotValue(state.plan, day, slot);
       const cell = document.createElement('button');
       cell.type = 'button';
       cell.dataset.day = day;
       cell.dataset.slot = slot;
-      if (val && val.type === 'custom') {
-        cell.className = 'meal-cell filled custom';
-        cell.innerHTML = `<span class="meal-cell-name">${escapeHtml(val.name)}</span>`;
-      } else if (val && val.type === 'recipe' && val.recipe) {
-        const meal = val.recipe;
-        const batch = (meal.tags || []).includes('batch-cook');
-        cell.className = 'meal-cell filled';
-        cell.innerHTML = `
-          <span class="meal-cell-name">${escapeHtml(meal.name)}</span>
-          <span class="meal-cell-meta">
-            ${meal.prep_minutes ? `<span class="badge badge-time">${meal.prep_minutes} min</span>` : ''}
-            ${batch ? '<span class="badge badge-batch">Batch</span>' : ''}
-          </span>`;
-      } else {
-        cell.className = 'meal-cell';
-        cell.innerHTML = '<span class="meal-cell-placeholder">Tap to add</span>';
-      }
-      cell.addEventListener('click', () => {
-        if (Date.now() < suppressClickUntil) return;
-        if (val && val.type === 'recipe' && val.recipe) {
-          openRecipeCard(val.recipe.id, { fromCalendar: true, day, slot });
-        } else {
-          openPicker(day, slot);
-        }
-      });
-      grid.appendChild(cell);
+      const painted = mealCellContent(val, slot);
+      cell.className = painted.className;
+      cell.innerHTML = painted.html;
+      bindMealCell(cell, day, slot, val);
+      block.appendChild(cell);
     });
+    grid.appendChild(block);
   });
+  renderTonight();
 }
 
 function openPicker(day, slot) {
@@ -1010,6 +1070,15 @@ function resetRecipeForm() {
   hidePasteFallback();
 }
 
+function openRecipeFormSheet() {
+  document.getElementById('recipeFormModal').showModal();
+}
+
+function closeRecipeFormSheet() {
+  const modal = document.getElementById('recipeFormModal');
+  if (modal.open) modal.close();
+}
+
 function openEditForm(meal) {
   setTab('recipes');
   document.getElementById('recipeEditId').value = meal.id;
@@ -1034,7 +1103,7 @@ function openEditForm(meal) {
   ings.forEach(addIngredientRow);
   document.getElementById('cookDetails').open = true;
   hidePasteFallback();
-  document.getElementById('recipeForm').scrollIntoView({ behavior: 'smooth' });
+  openRecipeFormSheet();
 }
 
 function collectFormRecipe() {
@@ -1090,6 +1159,7 @@ async function handleSaveRecipe(e) {
       state.recipes.sort((a, b) => a.name.localeCompare(b.name));
     }
     resetRecipeForm();
+    closeRecipeFormSheet();
     populateMemberSelect();
     renderRecipeList();
     renderCalendar();
@@ -1140,46 +1210,41 @@ function renderRecipeList() {
     const q = state.search.toLowerCase();
     list = list.filter((r) => recipeSearchText(r).includes(q));
   }
-  document.getElementById('recipeCount').textContent = list.length ? `(${list.length})` : '';
   if (!list.length) {
     container.innerHTML = '<div class="empty-state"><p>No recipes found.</p></div>';
     return;
   }
+  const hasPhotos = list.some((r) => r.photo_url);
+  container.className = 'recipe-grid' + (hasPhotos ? ' has-photos' : '');
   container.innerHTML = '';
   list.forEach((recipe) => {
     const ready = DB.canPlan(recipe);
     const card = document.createElement('div');
-    card.className = 'recipe-card';
+    const photo = recipe.photo_url;
+    card.className = 'recipe-card' + (photo ? ' has-photo' : '');
+    const title = escapeHtml(recipe.name);
     card.innerHTML = `
       <button class="delete-btn" title="Delete">×</button>
-      <div class="recipe-category">${escapeHtml(recipe.category || 'Other')}</div>
-      <h3>${
-        recipe.url
-          ? `<a href="${escapeHtml(recipe.url)}" target="_blank" rel="noopener">${escapeHtml(recipe.name)}</a>`
-          : escapeHtml(recipe.name)
-      }</h3>
-      <div class="recipe-meta">
-        Added by <strong>${escapeHtml(recipe.added_by || '')}</strong>
-        ${recipe.prep_minutes ? ` · ${recipe.prep_minutes} min` : ''}
-      </div>
-      <div>${ready
-        ? '<span class="badge badge-ready">Ready to plan</span>'
-        : '<span class="badge badge-needs">No ingredients — won’t add to grocery</span>'}</div>
-      ${recipe.notes ? `<div class="recipe-notes">${escapeHtml(recipe.notes)}</div>` : ''}
-      ${
-        recipe.photo_url || recipe.photo_url_back
-          ? `<div class="thumb-row">
-              ${recipe.photo_url ? `<img src="${escapeHtml(recipe.photo_url)}" alt="Front">` : ''}
-              ${recipe.photo_url_back ? `<img src="${escapeHtml(recipe.photo_url_back)}" alt="Back">` : ''}
-            </div>`
-          : ''
-      }
-      <div class="recipe-card-actions">
-        <button type="button" class="btn btn-secondary btn-sm view-btn">View</button>
-        <button type="button" class="btn btn-ghost btn-sm edit-btn">Edit</button>
-        <button type="button" class="btn btn-primary btn-sm assign-btn">Assign</button>
+      ${photo ? `<img class="recipe-photo" src="${escapeHtml(photo)}" alt="">` : ''}
+      <div class="recipe-card-body">
+        <div class="recipe-category">${escapeHtml(recipe.category || 'Other')}</div>
+        <h3>${title}</h3>
+        <div class="recipe-meta">
+          ${escapeHtml(recipe.added_by || '')}${recipe.prep_minutes ? ` · ${recipe.prep_minutes} min` : ''}
+        </div>
+        <div>${ready
+          ? '<span class="badge badge-ready">On grocery</span>'
+          : '<span class="badge badge-needs">No grocery items</span>'}</div>
+        <div class="recipe-card-actions">
+          <button type="button" class="btn btn-secondary btn-sm view-btn">View</button>
+          <button type="button" class="btn btn-ghost btn-sm edit-btn">Edit</button>
+          <button type="button" class="btn btn-primary btn-sm assign-btn">Assign</button>
+        </div>
       </div>`;
-    card.querySelector('.delete-btn').addEventListener('click', () => handleDeleteRecipe(recipe.id));
+    card.querySelector('.delete-btn').addEventListener('click', (e) => {
+      e.stopPropagation();
+      handleDeleteRecipe(recipe.id);
+    });
     card.querySelector('.view-btn').addEventListener('click', () => openRecipeCard(recipe.id, { fromLibrary: true }));
     card.querySelector('.edit-btn').addEventListener('click', () => openEditForm(recipe));
     card.querySelector('.assign-btn').addEventListener('click', () => openAssignModal(recipe.id));
@@ -1316,14 +1381,21 @@ function addGroceryItem(items, ing, recipeName) {
   }
 }
 
-function groceryItemLabel(entry) {
+function groceryItemParts(entry) {
   const recipes = [...(entry.recipeNames || (entry.recipeName ? [entry.recipeName] : []))].sort((a, b) =>
     a.localeCompare(b)
   );
   const item = prettyGroceryName(entry.key || groceryItemKey(entry.item), entry.originals || [entry.item]);
-  const name = recipes.length ? `${item} (${recipes.join(', ')})` : item;
   const qty = formatQtys(entry.qtys);
-  return qty ? `${name} — ${qty}` : name;
+  return {
+    name: qty ? `${item} — ${qty}` : item,
+    sub: recipes.length ? recipes.join(', ') : ''
+  };
+}
+
+function groceryItemLabel(entry) {
+  const parts = groceryItemParts(entry);
+  return parts.sub ? `${parts.name} (${parts.sub})` : parts.name;
 }
 
 function getGroceryItems() {
@@ -1417,7 +1489,6 @@ function renderGrocery() {
     title.innerHTML = `<span>${C.SECTION_LABELS[section]}</span><span class="count">${sectionItems.length}</span>`;
     const itemList = document.createElement('div');
     itemList.className = 'grocery-items';
-    title.addEventListener('click', () => itemList.classList.toggle('collapsed'));
     sectionItems.forEach((entry) => {
       const row = document.createElement('div');
       if (entry.kind === 'manual') {
@@ -1444,9 +1515,13 @@ function renderGrocery() {
         const checked = !!state.groceryChecked[entry.key];
         row.className = 'grocery-item' + (checked ? ' checked' : '');
         const id = 'g-' + entry.key.replace(/\W/g, '-');
+        const parts = groceryItemParts(entry);
         row.innerHTML = `
           <input type="checkbox" id="${id}" ${checked ? 'checked' : ''}>
-          <label for="${id}">${escapeHtml(groceryItemLabel(entry))}</label>`;
+          <label for="${id}">
+            <span class="grocery-name">${escapeHtml(parts.name)}</span>
+            ${parts.sub ? `<span class="grocery-sub">${escapeHtml(parts.sub)}</span>` : ''}
+          </label>`;
         row.querySelector('input').addEventListener('change', (e) => {
           state.groceryChecked[entry.key] = e.target.checked;
           row.classList.toggle('checked', e.target.checked);
@@ -1660,7 +1735,11 @@ async function init() {
     state.weekStart = getMondayISO(new Date());
     await loadWeek();
   });
+  document.getElementById('planMenuBtn').addEventListener('click', () => {
+    document.getElementById('planMenuModal').showModal();
+  });
   document.getElementById('generateBtn').addEventListener('click', () => {
+    document.getElementById('planMenuModal').close();
     state.generateCategory = 'All';
     renderGenerateCategoryChips();
     document.getElementById('previewList').innerHTML = '';
@@ -1671,6 +1750,7 @@ async function init() {
   });
   document.getElementById('previewBtn').addEventListener('click', previewSuggestions);
   document.getElementById('clearBtn').addEventListener('click', async () => {
+    document.getElementById('planMenuModal').close();
     if (!confirm('Clear all meals for this week?')) return;
     const clearExtras = confirm('Also clear extra grocery items?');
     state.plan = DB.emptyPlan();
@@ -1700,7 +1780,15 @@ async function init() {
   initCalendarDrag();
   document.getElementById('copyGroceryBtn').addEventListener('click', copyGroceryList);
   document.getElementById('shareGroceryBtn').addEventListener('click', shareGroceryList);
-  document.getElementById('calendarWeekBtn').addEventListener('click', downloadWeekIcs);
+  document.getElementById('calendarWeekBtn').addEventListener('click', () => {
+    document.getElementById('planMenuModal').close();
+    downloadWeekIcs();
+  });
+  document.getElementById('addRecipeOpenBtn').addEventListener('click', () => {
+    resetRecipeForm();
+    openRecipeFormSheet();
+  });
+  document.getElementById('closeRecipeFormBtn').addEventListener('click', closeRecipeFormSheet);
   document.getElementById('snacksBtn').addEventListener('click', () => {
     document.getElementById('snackSearch').value = '';
     renderSnackList();
@@ -1712,7 +1800,10 @@ async function init() {
   document.getElementById('importRecipeBtn').addEventListener('click', pullIngredientsFromLink);
   document.getElementById('usePastedListBtn').addEventListener('click', usePastedList);
   document.getElementById('addIngredientBtn').addEventListener('click', () => addIngredientRow());
-  document.getElementById('cancelEditBtn').addEventListener('click', resetRecipeForm);
+  document.getElementById('cancelEditBtn').addEventListener('click', () => {
+    resetRecipeForm();
+    closeRecipeFormSheet();
+  });
   document.getElementById('searchInput').addEventListener('input', (e) => {
     state.search = e.target.value.trim();
     renderRecipeList();
