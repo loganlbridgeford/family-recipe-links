@@ -1,17 +1,6 @@
 /* global APP_CONFIG, DB */
 const C = APP_CONFIG;
 
-const FALLBACK_MEMBERS = [
-  'Logan',
-  'Nadine',
-  'John C.',
-  'Neileen',
-  'John A.',
-  'Abbie',
-  'Tyler',
-  'Monica'
-];
-
 const state = {
   recipes: [],
   members: [],
@@ -107,7 +96,7 @@ function defaultAddedBy() {
   const sel = document.getElementById('addedBy');
   if (sel && sel.value) return sel.value;
   if (state.members[0] && state.members[0].display_name) return state.members[0].display_name;
-  return FALLBACK_MEMBERS[0];
+  return 'Me';
 }
 
 function recipeSearchText(r) {
@@ -1929,6 +1918,204 @@ function renderSnackList() {
   });
 }
 
+/* ---------- Family / household ---------- */
+
+function householdTitle() {
+  return (C.HOUSEHOLD && C.HOUSEHOLD.name) || 'Family';
+}
+
+function renderHouseholdChrome() {
+  document.querySelectorAll('[data-household-name]').forEach((el) => {
+    el.textContent = householdTitle();
+  });
+  const hint = document.getElementById('planHouseholdHint');
+  if (hint) hint.textContent = `${householdTitle()} — two phones, same week. Send the invite to your people, not the bare website.`;
+}
+
+function rememberFamilyInUrl(row) {
+  const code = DB.familyCode(row);
+  if (!code || !window.history || !window.history.replaceState) return;
+  const url = new URL(window.location.href);
+  url.searchParams.set('family', code);
+  window.history.replaceState({}, '', url);
+}
+
+function showGateError(msg) {
+  const el = document.getElementById('gateError');
+  if (!el) return;
+  el.hidden = !msg;
+  el.textContent = msg || '';
+}
+
+function openFamilyGate() {
+  const gate = document.getElementById('familyGate');
+  if (!gate.open) gate.showModal();
+}
+
+function closeFamilyGate() {
+  const gate = document.getElementById('familyGate');
+  if (gate.open) gate.close();
+}
+
+async function enterHousehold(row) {
+  if (!row) return;
+  DB.setActiveHousehold(row);
+  DB.persistHousehold(row);
+  rememberFamilyInUrl(row);
+  renderHouseholdChrome();
+  closeFamilyGate();
+  await loadAppData();
+}
+
+async function copyInviteLink() {
+  const url = DB.familyUrl();
+  if (!url || !url.includes('family=')) {
+    showToast('Join a family first.');
+    return;
+  }
+  try {
+    await navigator.clipboard.writeText(url);
+    showToast('Invite link copied.');
+  } catch (err) {
+    console.error(err);
+    showToast(url);
+  }
+}
+
+async function shareInviteLink() {
+  const url = DB.familyUrl();
+  if (!url || !url.includes('family=')) {
+    showToast('Join a family first.');
+    return;
+  }
+  if (navigator.share) {
+    try {
+      await navigator.share({
+        title: householdTitle(),
+        text: `Join ${householdTitle()} on Family Planner`,
+        url
+      });
+      return;
+    } catch (err) {
+      if (err && err.name === 'AbortError') return;
+    }
+  }
+  await copyInviteLink();
+}
+
+async function resolveHousehold() {
+  const params = new URLSearchParams(window.location.search);
+  const fromUrl = params.get('family');
+  if (fromUrl) {
+    try {
+      const row = await DB.joinHousehold(fromUrl);
+      if (row) {
+        await enterHousehold(row);
+        return true;
+      }
+      showGateError('That family code was not found.');
+    } catch (err) {
+      console.error(err);
+      showGateError('Could not open that family.');
+    }
+    openFamilyGate();
+    return false;
+  }
+
+  const stored = DB.readStoredHousehold();
+  if (stored && stored.id) {
+    try {
+      const row = await DB.getHousehold(stored.id);
+      if (row) {
+        await enterHousehold(row);
+        return true;
+      }
+    } catch (err) {
+      console.error(err);
+    }
+  }
+
+  openFamilyGate();
+  return false;
+}
+
+async function handleGateJoin() {
+  const btn = document.getElementById('gateJoinBtn');
+  const raw = document.getElementById('gateCode').value;
+  showGateError('');
+  btn.disabled = true;
+  try {
+    const row = await DB.joinHousehold(raw);
+    if (!row) {
+      showGateError('That family code was not found.');
+      return;
+    }
+    await enterHousehold(row);
+  } catch (err) {
+    console.error(err);
+    showGateError('Could not join that family.');
+  } finally {
+    btn.disabled = false;
+  }
+}
+
+async function handleGateCreate() {
+  const btn = document.getElementById('gateCreateBtn');
+  const name = document.getElementById('gateFamilyName').value.trim();
+  const who = document.getElementById('gateYourName').value.trim();
+  showGateError('');
+  if (!name) {
+    showGateError('Name your family.');
+    return;
+  }
+  if (!who) {
+    showGateError('Add your name so recipes can say who added them.');
+    return;
+  }
+  btn.disabled = true;
+  try {
+    const row = await DB.createHousehold(name, who);
+    await enterHousehold(row);
+    showToast('Kitchen created. Send the invite to your people.');
+    shareInviteLink();
+  } catch (err) {
+    console.error(err);
+    showGateError('Could not start that family. Try again.');
+  } finally {
+    btn.disabled = false;
+  }
+}
+
+async function loadAppData() {
+  try {
+    state.recipes = await DB.listRecipes();
+  } catch (err) {
+    console.error(err);
+    showToast('Could not load recipes. Check the SQL migration ran.');
+    document.getElementById('recipesContainer').innerHTML =
+      '<div class="empty-state"><p>Could not load recipes. Confirm the household SQL ran in Supabase.</p></div>';
+  }
+
+  try {
+    const members = await DB.listMembers();
+    state.members = members && members.length ? members : [{ display_name: 'Me', sort_order: 1 }];
+  } catch (err) {
+    console.error(err);
+    state.members = [{ display_name: 'Me', sort_order: 1 }];
+  }
+
+  populateMemberSelect();
+  renderRecipeList();
+  try {
+    await loadWeek();
+  } catch (err) {
+    console.error(err);
+    showToast('Could not load this week’s plan.');
+    renderCalendar();
+    renderGrocery();
+  }
+}
+
 /* ---------- Init ---------- */
 
 async function changeWeek(offsetDays) {
@@ -1954,7 +2141,30 @@ async function init() {
     await loadWeek();
   });
   document.getElementById('planMenuBtn').addEventListener('click', () => {
+    renderHouseholdChrome();
     document.getElementById('planMenuModal').showModal();
+  });
+  document.getElementById('copyInviteBtn').addEventListener('click', async () => {
+    await copyInviteLink();
+  });
+  document.getElementById('shareInviteBtn').addEventListener('click', async () => {
+    document.getElementById('planMenuModal').close();
+    await shareInviteLink();
+  });
+  document.getElementById('familyGate').addEventListener('cancel', (e) => e.preventDefault());
+  document.getElementById('gateJoinBtn').addEventListener('click', handleGateJoin);
+  document.getElementById('gateCreateBtn').addEventListener('click', handleGateCreate);
+  document.getElementById('gateCode').addEventListener('keydown', (e) => {
+    if (e.key === 'Enter') {
+      e.preventDefault();
+      handleGateJoin();
+    }
+  });
+  document.getElementById('gateYourName').addEventListener('keydown', (e) => {
+    if (e.key === 'Enter') {
+      e.preventDefault();
+      handleGateCreate();
+    }
   });
   document.getElementById('generateBtn').addEventListener('click', () => {
     document.getElementById('planMenuModal').close();
@@ -2037,35 +2247,7 @@ async function init() {
     btn.addEventListener('click', () => document.getElementById(btn.dataset.close).close());
   });
 
-  try {
-    state.recipes = await DB.listRecipes();
-  } catch (err) {
-    console.error(err);
-    showToast('Could not load recipes. Check the SQL migration ran.');
-    document.getElementById('recipesContainer').innerHTML =
-      '<div class="empty-state"><p>Could not load recipes. Confirm the household SQL ran in Supabase.</p></div>';
-  }
-
-  try {
-    const members = await DB.listMembers();
-    state.members = members && members.length
-      ? members
-      : FALLBACK_MEMBERS.map((display_name, i) => ({ display_name, sort_order: i + 1 }));
-  } catch (err) {
-    console.error(err);
-    state.members = FALLBACK_MEMBERS.map((display_name, i) => ({ display_name, sort_order: i + 1 }));
-  }
-
-  populateMemberSelect();
-  renderRecipeList();
-  try {
-    await loadWeek();
-  } catch (err) {
-    console.error(err);
-    showToast('Could not load this week’s plan.');
-    renderCalendar();
-    renderGrocery();
-  }
+  await resolveHousehold();
 }
 
 document.addEventListener('DOMContentLoaded', init);

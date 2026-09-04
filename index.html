@@ -10,7 +10,7 @@
   <link rel="manifest" href="manifest.webmanifest">
   <link rel="apple-touch-icon" href="icons/apple-touch-icon.png">
   <link rel="icon" href="icons/icon.svg" type="image/svg+xml">
-  <link rel="stylesheet" href="styles.css?v=app-shell-3">
+  <link rel="stylesheet" href="styles.css?v=app-shell-4">
 </head>
 <body>
   <div class="app">
@@ -25,11 +25,17 @@
         <button type="button" class="btn btn-icon" id="planMenuBtn" aria-label="Plan actions">···</button>
       </div>
       <div class="header-pane" id="header-recipes" hidden>
-        <h1>Recipes</h1>
+        <div class="header-titles">
+          <h1>Recipes</h1>
+          <span class="household-label" data-household-name></span>
+        </div>
         <button type="button" class="btn btn-icon btn-add" id="addRecipeOpenBtn" aria-label="Add recipe">+</button>
       </div>
       <div class="header-pane" id="header-grocery" hidden>
-        <h1>Grocery</h1>
+        <div class="header-titles">
+          <h1>Grocery</h1>
+          <span class="household-label" data-household-name></span>
+        </div>
         <button type="button" class="btn btn-secondary btn-sm" id="shareGroceryBtn">Share</button>
         <button type="button" class="hidden" id="copyGroceryBtn" tabindex="-1" aria-hidden="true">Copy</button>
       </div>
@@ -79,6 +85,32 @@
     </nav>
   </div>
 
+  <dialog class="sheet" id="familyGate" aria-labelledby="gateTitle">
+    <div class="sheet-handle"></div>
+    <div class="sheet-header">
+      <h2 id="gateTitle">Whose kitchen?</h2>
+    </div>
+    <div class="sheet-body" id="gateBody">
+      <p class="hint">Each family has its own recipes and week. You and your people share one link. A different family uses a different link on this same site.</p>
+      <div class="form-group">
+        <label for="gateCode">Join a family</label>
+        <input type="text" id="gateCode" placeholder="Code or invite link" autocomplete="off" autocapitalize="characters" spellcheck="false">
+      </div>
+      <button type="button" class="btn btn-primary btn-block" id="gateJoinBtn">Join</button>
+      <p class="hint gate-or">or start a new one</p>
+      <div class="form-group">
+        <label for="gateFamilyName">Family name</label>
+        <input type="text" id="gateFamilyName" placeholder="e.g. The Bridgefords" autocomplete="organization">
+      </div>
+      <div class="form-group">
+        <label for="gateYourName">Your name</label>
+        <input type="text" id="gateYourName" placeholder="e.g. Nadine" autocomplete="name">
+      </div>
+      <button type="button" class="btn btn-secondary btn-block" id="gateCreateBtn">Start our family</button>
+      <p class="hint" id="gateError" hidden></p>
+    </div>
+  </dialog>
+
   <div class="toast" id="toast" role="status" aria-live="polite"></div>
 
   <dialog class="sheet" id="planMenuModal">
@@ -88,6 +120,9 @@
       <button type="button" class="btn btn-ghost btn-sm modal-close" data-close="planMenuModal">Done</button>
     </div>
     <div class="sheet-body">
+      <p class="hint" id="planHouseholdHint"></p>
+      <button type="button" class="btn btn-secondary btn-block" id="shareInviteBtn">Invite family</button>
+      <button type="button" class="btn btn-ghost btn-block" id="copyInviteBtn">Copy invite link</button>
       <button type="button" class="btn btn-primary btn-block" id="generateBtn">Fill empty slots</button>
       <button type="button" class="btn btn-secondary btn-block" id="calendarWeekBtn">Add week to Calendar</button>
       <button type="button" class="btn btn-ghost btn-block" id="clearBtn">Clear week</button>
@@ -308,8 +343,8 @@
   </dialog>
 
   <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
-  <script src="js/config.js?v=app-shell-3"></script>
-  <script src="js/db.js?v=app-shell-3"></script>
-  <script src="app.js?v=app-shell-3"></script>
+  <script src="js/config.js?v=app-shell-4"></script>
+  <script src="js/db.js?v=app-shell-4"></script>
+  <script src="app.js?v=app-shell-4"></script>
 </body>
 </html>

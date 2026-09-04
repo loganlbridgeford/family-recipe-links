@@ -3,6 +3,9 @@
   const C = global.APP_CONFIG;
   let client = null;
 
+  const HOUSEHOLD_STORAGE_KEY = 'familyPlanner.household';
+  const CODE_CHARS = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
+
   function getClient() {
     if (client) return client;
     if (!global.supabase) {
@@ -10,6 +13,138 @@
     }
     client = global.supabase.createClient(C.SUPABASE_URL, C.SUPABASE_ANON_KEY);
     return client;
+  }
+
+  function requireHouseholdId() {
+    if (!C.HOUSEHOLD_ID) throw new Error('No family selected');
+    return C.HOUSEHOLD_ID;
+  }
+
+  function randomFamilyCode() {
+    const buf = new Uint8Array(8);
+    (global.crypto || window.crypto).getRandomValues(buf);
+    let out = '';
+    for (let i = 0; i < buf.length; i += 1) out += CODE_CHARS[buf[i] % CODE_CHARS.length];
+    return out;
+  }
+
+  function familyCode(row) {
+    if (!row) return '';
+    return String(row.invite_code || row.slug || '')
+      .trim()
+      .toUpperCase();
+  }
+
+  function parseFamilyCode(raw) {
+    const s = String(raw || '').trim();
+    if (!s) return '';
+    try {
+      const u = new URL(s);
+      const q = u.searchParams.get('family');
+      if (q) return String(q).trim().toUpperCase();
+    } catch (_) {
+      /* not a URL */
+    }
+    const m = s.match(/[?&]family=([A-Za-z0-9-]+)/i);
+    if (m) return m[1].toUpperCase();
+    return s.replace(/\s+/g, '').toUpperCase();
+  }
+
+  function familyUrl(row) {
+    const code = familyCode(row || C.HOUSEHOLD);
+    const origin = global.location ? global.location.origin : '';
+    const path = global.location ? global.location.pathname : '/';
+    return `${origin}${path}?family=${encodeURIComponent(code)}`;
+  }
+
+  function setActiveHousehold(row) {
+    C.HOUSEHOLD = row || null;
+    C.HOUSEHOLD_ID = row && row.id ? row.id : '';
+  }
+
+  function readStoredHousehold() {
+    try {
+      return JSON.parse(global.localStorage.getItem(HOUSEHOLD_STORAGE_KEY) || 'null');
+    } catch (_) {
+      return null;
+    }
+  }
+
+  function persistHousehold(row) {
+    if (!row || !row.id) {
+      global.localStorage.removeItem(HOUSEHOLD_STORAGE_KEY);
+      return;
+    }
+    global.localStorage.setItem(
+      HOUSEHOLD_STORAGE_KEY,
+      JSON.stringify({
+        id: row.id,
+        name: row.name,
+        code: familyCode(row)
+      })
+    );
+  }
+
+  async function getHousehold(id) {
+    if (!id) return null;
+    const { data, error } = await getClient().from('households').select('*').eq('id', id).maybeSingle();
+    if (error) throw error;
+    return data || null;
+  }
+
+  async function joinHousehold(rawCode) {
+    const code = parseFamilyCode(rawCode);
+    if (!code) return null;
+    const attempts = [
+      { col: 'invite_code', val: code },
+      { col: 'slug', val: code },
+      { col: 'slug', val: code.toLowerCase() }
+    ];
+    for (const attempt of attempts) {
+      const { data, error } = await getClient()
+        .from('households')
+        .select('*')
+        .eq(attempt.col, attempt.val)
+        .maybeSingle();
+      if (error && isMissingSchema(error)) continue;
+      if (error) throw error;
+      if (data) return data;
+    }
+    return null;
+  }
+
+  async function createHousehold(name, displayName) {
+    const familyName = String(name || '').trim();
+    if (!familyName) throw new Error('Family name required');
+    let lastError = null;
+    for (let i = 0; i < 4; i += 1) {
+      const code = randomFamilyCode();
+      const payload = { name: familyName, slug: code, invite_code: code };
+      let ins = await getClient().from('households').insert([payload]).select().single();
+      if (ins.error && isMissingSchema(ins.error)) {
+        const fallback = { name: familyName, slug: code };
+        ins = await getClient().from('households').insert([fallback]).select().single();
+      }
+      if (!ins.error) {
+        const household = ins.data;
+        const who = String(displayName || '').trim();
+        if (who) {
+          const mem = await getClient().from('household_members').insert([
+            {
+              household_id: household.id,
+              display_name: who,
+              role: 'owner',
+              sort_order: 1
+            }
+          ]);
+          if (mem.error) console.error(mem.error);
+        }
+        return household;
+      }
+      lastError = ins.error;
+      if (!/duplicate|unique/i.test(String(ins.error.message || ''))) throw ins.error;
+    }
+    throw lastError || new Error('Could not create family');
   }
 
   function emptyPlan() {
@@ -45,43 +180,26 @@
     const { data, error } = await getClient()
       .from('household_members')
       .select('id, display_name, role, sort_order')
-      .eq('household_id', C.HOUSEHOLD_ID)
+      .eq('household_id', requireHouseholdId())
       .order('sort_order', { ascending: true });
     if (error) throw error;
     return data || [];
   }
 
   async function listRecipes() {
-    const scoped = await getClient()
+    const { data, error } = await getClient()
       .from('recipes')
       .select('*')
-      .eq('household_id', C.HOUSEHOLD_ID)
+      .eq('household_id', requireHouseholdId())
       .order('name', { ascending: true });
-
-    if (!scoped.error) {
-      const scopedRows = scoped.data || [];
-      if (scopedRows.length) return scopedRows;
-      const all = await getClient().from('recipes').select('*').order('name', { ascending: true });
-      if (all.error) return scopedRows;
-      return (all.data || []).filter((r) => !r.household_id || r.household_id === C.HOUSEHOLD_ID);
-    }
-
-    if (isMissingSchema(scoped.error)) {
-      const { data, error } = await getClient()
-        .from('recipes')
-        .select('*')
-        .order('name', { ascending: true });
-      if (error) throw error;
-      return data || [];
-    }
-
-    throw scoped.error;
+    if (error) throw error;
+    return data || [];
   }
 
   async function uploadPhoto(file) {
     if (!file) return null;
     const ext = (file.name.split('.').pop() || 'jpg').toLowerCase();
-    const fileName = `${C.HOUSEHOLD_ID}/${Date.now()}-${Math.random().toString(36).slice(2)}.${ext}`;
+    const fileName = `${requireHouseholdId()}/${Date.now()}-${Math.random().toString(36).slice(2)}.${ext}`;
     const { error } = await getClient().storage.from(C.STORAGE_BUCKET).upload(fileName, file);
     if (error) throw error;
     const { data } = getClient().storage.from(C.STORAGE_BUCKET).getPublicUrl(fileName);
@@ -95,7 +213,7 @@
         : C.CATEGORY_TO_MEAL_TYPES[input.category] || [];
 
     return {
-      household_id: C.HOUSEHOLD_ID,
+      household_id: requireHouseholdId(),
       name: input.name,
       url: input.url || null,
       category: input.category || 'Other',
@@ -134,37 +252,25 @@
       .from('recipes')
       .update(patch)
       .eq('id', id)
-      .eq('household_id', C.HOUSEHOLD_ID)
+      .eq('household_id', requireHouseholdId())
       .select();
     if (error) throw error;
     return data[0];
   }
 
   async function deleteRecipe(id) {
-    const scoped = await getClient()
+    const { error } = await getClient()
       .from('recipes')
       .delete()
       .eq('id', id)
-      .eq('household_id', C.HOUSEHOLD_ID);
-    if (!scoped.error) {
-      const leftover = await getClient().from('recipes').select('id').eq('id', id).maybeSingle();
-      if (leftover.data) {
-        const { error } = await getClient().from('recipes').delete().eq('id', id);
-        if (error) throw error;
-      }
-      return true;
-    }
-    if (isMissingSchema(scoped.error)) {
-      const { error } = await getClient().from('recipes').delete().eq('id', id);
-      if (error) throw error;
-      return true;
-    }
-    throw scoped.error;
+      .eq('household_id', requireHouseholdId());
+    if (error) throw error;
+    return true;
   }
 
   function emptyPlanRow(weekStart) {
     return {
-      household_id: C.HOUSEHOLD_ID,
+      household_id: requireHouseholdId(),
       week_start: weekStart,
       plan: emptyPlan(),
       grocery_checked: {},
@@ -177,7 +283,7 @@
     const { data, error } = await getClient()
       .from('meal_plans')
       .select('*')
-      .eq('household_id', C.HOUSEHOLD_ID)
+      .eq('household_id', requireHouseholdId())
       .eq('week_start', weekStart)
       .maybeSingle();
     if (error) {
@@ -196,7 +302,7 @@
 
   async function savePlan(weekStart, fields) {
     const payload = {
-      household_id: C.HOUSEHOLD_ID,
+      household_id: requireHouseholdId(),
       week_start: weekStart,
       updated_at: new Date().toISOString(),
       ...fields
@@ -225,7 +331,7 @@
     const { data, error } = await getClient()
       .from('meal_plans')
       .select('*')
-      .eq('household_id', C.HOUSEHOLD_ID);
+      .eq('household_id', requireHouseholdId());
     if (error) throw error;
     const updates = [];
     (data || []).forEach((row) => {
@@ -277,6 +383,15 @@
     getClient,
     emptyPlan,
     canPlan,
+    familyCode,
+    familyUrl,
+    parseFamilyCode,
+    setActiveHousehold,
+    readStoredHousehold,
+    persistHousehold,
+    getHousehold,
+    joinHousehold,
+    createHousehold,
     listMembers,
     listRecipes,
     addRecipe,

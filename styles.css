@@ -79,6 +79,31 @@ body.is-meal-dragging .app-main {
   letter-spacing: -0.02em;
 }
 
+.header-titles {
+  flex: 1;
+  min-width: 0;
+}
+
+.header-titles h1 { flex: none; }
+
+.household-label {
+  display: block;
+  font-size: 0.78rem;
+  font-weight: 650;
+  color: var(--text-muted);
+  margin-top: 1px;
+}
+
+.gate-or {
+  text-align: center;
+  margin: 18px 0 8px;
+}
+
+#gateError {
+  color: #b42318;
+  margin-top: 12px;
+}
+
 .week-bar {
   display: flex;
   align-items: center;
