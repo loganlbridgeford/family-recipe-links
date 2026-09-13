@@ -17,7 +17,8 @@ const state = {
   pendingAssignId: null,
   assignDay: 'mon',
   assignSlot: 'breakfast',
-  saveTimer: null
+  saveTimer: null,
+  saving: false
 };
 
 let drag = null;
@@ -123,6 +124,7 @@ function scheduleSave() {
 }
 
 async function persistPlan() {
+  state.saving = true;
   try {
     await DB.savePlan(state.weekStart, {
       plan: state.plan,
@@ -133,21 +135,50 @@ async function persistPlan() {
   } catch (err) {
     console.error(err);
     showToast('Could not save plan.');
+  } finally {
+    state.saving = false;
   }
+}
+
+function applyPlanRow(row) {
+  state.plan = (row && row.plan) || DB.emptyPlan();
+  C.DAYS.forEach((d) => {
+    if (!state.plan[d]) state.plan[d] = { breakfast: null, lunch: null, dinner: null };
+  });
+  state.groceryChecked = (row && row.grocery_checked) || {};
+  state.snackAdds = (row && row.snack_adds) || [];
+  state.manualItems = row && Array.isArray(row.manual_items) ? row.manual_items : [];
 }
 
 async function loadWeek() {
   const row = await DB.getPlan(state.weekStart);
-  state.plan = row.plan || DB.emptyPlan();
-  C.DAYS.forEach((d) => {
-    if (!state.plan[d]) state.plan[d] = { breakfast: null, lunch: null, dinner: null };
-  });
-  state.groceryChecked = row.grocery_checked || {};
-  state.snackAdds = row.snack_adds || [];
-  state.manualItems = Array.isArray(row.manual_items) ? row.manual_items : [];
+  applyPlanRow(row);
   renderWeekLabel();
   renderCalendar();
   renderGrocery();
+}
+
+let refetchTimer = null;
+
+function scheduleWeekRefetch() {
+  clearTimeout(refetchTimer);
+  refetchTimer = setTimeout(refetchOpenWeek, 1000);
+}
+
+async function refetchOpenWeek() {
+  if (!C.HOUSEHOLD_ID) return;
+  const gate = document.getElementById('familyGate');
+  if (gate && gate.open) return;
+  if (state.saveTimer || state.saving) return;
+  try {
+    const row = await DB.getPlan(state.weekStart);
+    applyPlanRow(row);
+    renderWeekLabel();
+    renderCalendar();
+    renderGrocery();
+  } catch (err) {
+    console.error(err);
+  }
 }
 
 function renderWeekLabel() {
@@ -1322,6 +1353,28 @@ const GROCERY_PREP_WORDS = new Set([
   'room', 'temperature', 'and', 'or', 'of', 'for', 'the'
 ]);
 
+const GROCERY_ALIASES = {
+  'all purpose flour': 'flour',
+  'all flour purpose': 'flour',
+  'ap flour': 'flour',
+  'flour ap': 'flour',
+  'plain flour': 'flour',
+  'flour plain': 'flour',
+  'yellow onion': 'onion',
+  'onion yellow': 'onion',
+  'white onion': 'onion',
+  'onion white': 'onion',
+  onions: 'onion',
+  'kosher salt': 'salt',
+  'salt kosher': 'salt',
+  'sea salt': 'salt',
+  'salt sea': 'salt',
+  'chicken breast': 'chicken breast',
+  'chicken breasts': 'chicken breast',
+  'breast chicken': 'chicken breast',
+  'breasts chicken': 'chicken breast'
+};
+
 const QTY_UNIT_ALIASES = {
   tsp: 'teaspoon',
   tsps: 'teaspoon',
@@ -1358,7 +1411,9 @@ function groceryItemKey(item) {
     .replace(/[^a-z0-9\s]/g, ' ')
     .split(/\s+/)
     .filter((w) => w && !GROCERY_PREP_WORDS.has(w));
-  return words.sort().join(' ');
+  const natural = words.join(' ');
+  const sorted = [...words].sort().join(' ');
+  return GROCERY_ALIASES[natural] || GROCERY_ALIASES[sorted] || sorted;
 }
 
 function prettyGroceryName(key, originals) {
@@ -1434,7 +1489,7 @@ function addGroceryItem(items, ing, recipeName) {
   }
   const row = items[key];
   if (!row.originals.includes(itemName)) row.originals.push(itemName);
-  if (ing.qty && !row.qtys.includes(ing.qty)) row.qtys.push(ing.qty);
+  if (ing.qty) row.qtys.push(ing.qty);
   if (source && !row.recipeNames.includes(source)) row.recipeNames.push(source);
   if ((!row.section || row.section === 'other') && ing.section && ing.section !== 'other') {
     row.section = ing.section;
@@ -2207,6 +2262,10 @@ async function init() {
   });
   initCalendarDrag();
   initGrocerySwipe();
+  document.addEventListener('visibilitychange', () => {
+    if (document.visibilityState === 'visible') scheduleWeekRefetch();
+  });
+  window.addEventListener('focus', scheduleWeekRefetch);
   document.getElementById('copyGroceryBtn').addEventListener('click', copyGroceryList);
   document.getElementById('shareGroceryBtn').addEventListener('click', shareGroceryList);
   document.getElementById('calendarWeekBtn').addEventListener('click', () => {

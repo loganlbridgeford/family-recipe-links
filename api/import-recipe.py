@@ -293,7 +293,69 @@ def fetch_html(url):
         raise
 
 
+def parse_with_scrapers(html, source_url):
+    try:
+        from recipe_scrapers import scrape_html
+    except Exception:
+        return None
+    try:
+        scraper = scrape_html(html=html, org_url=source_url, wild_mode=True)
+    except TypeError:
+        try:
+            scraper = scrape_html(html, source_url)
+        except Exception:
+            return None
+    except Exception:
+        return None
+
+    def call(method):
+        try:
+            return method()
+        except Exception:
+            return None
+
+    ings = []
+    raw_ings = call(scraper.ingredients) or []
+    if isinstance(raw_ings, str):
+        raw_ings = [raw_ings]
+    for line in raw_ings:
+        text = strip_html(line)
+        if text:
+            ings.append(text)
+    if not ings:
+        return None
+
+    steps = []
+    raw_steps = call(getattr(scraper, "instructions_list", lambda: None)) or []
+    if isinstance(raw_steps, str):
+        raw_steps = [raw_steps]
+    for line in raw_steps:
+        text = strip_html(line)
+        if text:
+            steps.append(text)
+    if not steps:
+        inst = strip_html(call(scraper.instructions) or "")
+        if inst:
+            steps = [part.strip() for part in inst.split("\n") if part.strip()]
+
+    return {
+        "ok": True,
+        "name": strip_html(call(scraper.title) or "") or None,
+        "description": strip_html(call(getattr(scraper, "description", lambda: None)) or "") or None,
+        "image": first_image(call(scraper.image)),
+        "ingredients": ings,
+        "steps": steps,
+        "prepMinutes": duration_to_minutes(call(getattr(scraper, "prep_time", lambda: None))),
+        "cookMinutes": duration_to_minutes(call(getattr(scraper, "cook_time", lambda: None))),
+        "servings": servings_from({"recipeYield": call(scraper.yields)}),
+        "sourceUrl": source_url,
+    }
+
+
 def parse_recipe_html(html, source_url):
+    scraped = parse_with_scrapers(html, source_url)
+    if scraped and scraped.get("ingredients"):
+        return scraped
     recipe = None
     for block in extract_json_ld(html):
         recipe = find_recipe(block)
