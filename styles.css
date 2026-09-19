@@ -630,6 +630,7 @@ textarea { min-height: unset; }
 .swipe-row {
   position: relative;
   overflow: hidden;
+  background: #b42318;
 }
 
 .swipe-delete {

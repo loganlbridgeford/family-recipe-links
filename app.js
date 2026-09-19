@@ -1596,6 +1596,7 @@ function initGrocerySwipe() {
     grocerySwipe.startX = e.clientX;
     grocerySwipe.startY = e.clientY;
     grocerySwipe.startTx = swipeTranslate(front);
+    grocerySwipe.rowWidth = wrap.offsetWidth;
     grocerySwipe.axis = null;
     grocerySwipe.dx = grocerySwipe.startTx;
     front.style.transition = 'none';
@@ -1619,7 +1620,8 @@ function initGrocerySwipe() {
     }
     if (grocerySwipe.axis !== 'x') return;
     e.preventDefault();
-    grocerySwipe.dx = Math.min(0, Math.max(-SWIPE_DELETE_WIDTH - 28, grocerySwipe.startTx + mx));
+    const width = grocerySwipe.rowWidth || grocerySwipe.wrap.offsetWidth || 0;
+    grocerySwipe.dx = Math.min(0, Math.max(-width, grocerySwipe.startTx + mx));
     grocerySwipe.front.style.transform = `translateX(${grocerySwipe.dx}px)`;
   }, { passive: false });
 
@@ -1634,15 +1636,20 @@ function initGrocerySwipe() {
       grocerySwipe.axis = null;
       return;
     }
-    suppressGroceryClickUntil = Date.now() + 350;
-    if (dx <= -120) {
+    const width = grocerySwipe.rowWidth || wrap.offsetWidth || front.offsetWidth || 0;
+    const deleteAt = Math.max(width * 0.45, 120);
+    if (dx <= -deleteAt) {
       const del = wrap.querySelector('.swipe-delete');
       grocerySwipe.front = null;
       grocerySwipe.wrap = null;
       grocerySwipe.opened = null;
+      grocerySwipe.axis = null;
+      // Click before suppress so the capture-phase list handler does not swallow Delete.
       if (del) del.click();
+      suppressGroceryClickUntil = Date.now() + 350;
       return;
     }
+    suppressGroceryClickUntil = Date.now() + 350;
     if (dx < -SWIPE_DELETE_WIDTH * 0.45) {
       front.style.transition = 'transform 0.2s ease';
       front.style.transform = `translateX(${-SWIPE_DELETE_WIDTH}px)`;
