@@ -4,7 +4,7 @@
 from http.server import BaseHTTPRequestHandler
 from html import unescape
 from urllib.parse import urlparse
-from urllib.request import Request, urlopen
+from urllib.request import HTTPRedirectHandler, Request, build_opener
 from urllib.error import HTTPError, URLError
 import ipaddress
 import json
@@ -23,6 +23,47 @@ def json_bytes(body):
     return json.dumps(body, ensure_ascii=False).encode("utf-8")
 
 
+def ip_is_public(ip):
+    return not (
+        ip.is_private
+        or ip.is_loopback
+        or ip.is_link_local
+        or ip.is_reserved
+        or ip.is_multicast
+        or ip.is_unspecified
+    )
+
+
+def host_is_public(host):
+    host = (host or "").strip("[]").lower()
+    if not host or host == "localhost" or host.endswith(".localhost") or host == "::1":
+        return False
+    try:
+        ip = ipaddress.ip_address(host)
+        return ip_is_public(ip)
+    except ValueError:
+        pass
+    if re.match(r"^(127\.|10\.|192\.168\.|169\.254\.)", host):
+        return False
+    if re.match(r"^172\.(1[6-9]|2\d|3[0-1])\.", host):
+        return False
+    try:
+        infos = socket.getaddrinfo(host, None, socket.AF_UNSPEC, socket.SOCK_STREAM)
+    except socket.gaierror:
+        return False
+    if not infos:
+        return False
+    for info in infos:
+        addr = info[4][0]
+        try:
+            ip = ipaddress.ip_address(addr)
+        except ValueError:
+            return False
+        if not ip_is_public(ip):
+            return False
+    return True
+
+
 def parse_allowed_url(value):
     try:
         parsed = urlparse(str(value or "").strip())
@@ -31,21 +72,27 @@ def parse_allowed_url(value):
     if parsed.scheme not in ("http", "https"):
         return None
     host = (parsed.hostname or "").strip("[]").lower()
-    if not host or host == "localhost" or host.endswith(".localhost") or host == "::1":
+    if not host or not parsed.netloc:
         return None
-    try:
-        ip = ipaddress.ip_address(host)
-        if ip.is_private or ip.is_loopback or ip.is_link_local or ip.is_reserved:
-            return None
-    except ValueError:
-        pass
-    if re.match(r"^(127\.|10\.|192\.168\.|169\.254\.)", host):
-        return None
-    if re.match(r"^172\.(1[6-9]|2\d|3[0-1])\.", host):
-        return None
-    if not parsed.netloc:
+    if not host_is_public(host):
         return None
     return parsed.geturl()
+
+
+class GuardedRedirectHandler(HTTPRedirectHandler):
+    max_hops = 5
+
+    def redirect_request(self, req, fp, code, msg, headers, newurl):
+        hops = getattr(req, "_frl_hops", 0) + 1
+        if hops > self.max_hops:
+            raise URLError("too many redirects")
+        allowed = parse_allowed_url(newurl)
+        if not allowed:
+            raise URLError("blocked redirect")
+        new_req = HTTPRedirectHandler.redirect_request(self, req, fp, code, msg, headers, allowed)
+        if new_req is not None:
+            new_req._frl_hops = hops
+        return new_req
 
 
 def strip_html(value):
@@ -282,15 +329,16 @@ def fetch_html(url):
             "Accept-Language": "en-US,en;q=0.9",
         },
     )
-    try:
-        with urlopen(req, timeout=FETCH_SEC) as resp:
-            data = resp.read(MAX_HTML_BYTES)
-            return data.decode("utf-8", "replace")
-    except HTTPError as err:
-        body = err.read(MAX_HTML_BYTES)
-        return body.decode("utf-8", "replace") if body else ""
-    except (URLError, TimeoutError, socket.timeout):
-        raise
+    opener = build_opener(GuardedRedirectHandler)
+    with opener.open(req, timeout=FETCH_SEC) as resp:
+        status = getattr(resp, "status", None) or resp.getcode()
+        if status and int(status) >= 400:
+            raise URLError("http error")
+        final = parse_allowed_url(resp.geturl())
+        if not final:
+            raise URLError("blocked redirect")
+        data = resp.read(MAX_HTML_BYTES)
+        return data.decode("utf-8", "replace")
 
 
 def parse_with_scrapers(html, source_url):
@@ -377,6 +425,8 @@ def import_from_url(url):
         return 200, {"ok": False, "reason": "invalid_url", "hint": "Paste ingredients instead."}
     try:
         html = fetch_html(allowed)
+    except HTTPError:
+        return 200, {"ok": False, "reason": "fetch_failed", "hint": "Paste ingredients instead."}
     except (URLError, TimeoutError, socket.timeout) as err:
         timed_out = isinstance(err, (TimeoutError, socket.timeout)) or "timed out" in str(err).lower()
         return 200, {

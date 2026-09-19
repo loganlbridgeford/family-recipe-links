@@ -1,0 +1,11 @@
+node_modules/
+.env
+.env.*
+.DS_Store
+*.p8
+*.pem
+ios/DerivedData
+ios/App/build
+www/
+__pycache__/
+api/__pycache__/

@@ -21,7 +21,9 @@ const state = {
   assignPlan: null,
   assignSaving: false,
   saveTimer: null,
-  saving: false
+  saving: false,
+  planUpdatedAt: null,
+  pendingSnapshot: null
 };
 
 let drag = null;
@@ -66,6 +68,33 @@ function escapeHtml(str) {
   const el = document.createElement('div');
   el.textContent = str == null ? '' : String(str);
   return el.innerHTML;
+}
+
+function safeHttpUrl(raw) {
+  const s = String(raw || '').trim();
+  if (!s) return '';
+  try {
+    const u = new URL(s);
+    if (u.protocol !== 'http:' && u.protocol !== 'https:') return '';
+    return u.href;
+  } catch (_) {
+    return '';
+  }
+}
+
+function cloneJson(value) {
+  return JSON.parse(JSON.stringify(value));
+}
+
+function capturePlanSnapshot() {
+  return {
+    weekStart: state.weekStart,
+    plan: cloneJson(state.plan),
+    groceryChecked: cloneJson(state.groceryChecked),
+    snackAdds: cloneJson(state.snackAdds),
+    manualItems: cloneJson(state.manualItems),
+    updatedAt: state.planUpdatedAt || null
+  };
 }
 
 function showToast(msg) {
@@ -236,21 +265,53 @@ function recipeSearchText(r) {
 
 function scheduleSave() {
   clearTimeout(state.saveTimer);
-  state.saveTimer = setTimeout(persistPlan, 500);
+  state.pendingSnapshot = capturePlanSnapshot();
+  state.saveTimer = setTimeout(() => {
+    const snap = state.pendingSnapshot;
+    state.saveTimer = null;
+    persistPlan(snap);
+  }, 500);
 }
 
-async function persistPlan() {
+async function persistPlan(snapshot) {
+  if (!snapshot) return;
   state.saving = true;
   try {
-    await DB.savePlan(state.weekStart, {
-      plan: state.plan,
-      grocery_checked: state.groceryChecked,
-      snack_adds: state.snackAdds,
-      manual_items: state.manualItems
-    });
+    const saved = await DB.savePlan(
+      snapshot.weekStart,
+      {
+        plan: snapshot.plan,
+        grocery_checked: snapshot.groceryChecked,
+        snack_adds: snapshot.snackAdds,
+        manual_items: snapshot.manualItems
+      },
+      snapshot.updatedAt
+    );
+    if (saved && saved.updated_at && snapshot.weekStart === state.weekStart) {
+      state.planUpdatedAt = saved.updated_at;
+    }
+    if (
+      saved &&
+      saved.updated_at &&
+      state.pendingSnapshot &&
+      state.pendingSnapshot.weekStart === snapshot.weekStart
+    ) {
+      state.pendingSnapshot.updatedAt = saved.updated_at;
+    }
   } catch (err) {
     console.error(err);
-    showToast('Could not save plan.');
+    if (DB.isPlanConflict(err)) {
+      showToast('This week was updated on another phone. Reloading.');
+      if (snapshot.weekStart === state.weekStart) {
+        try {
+          await loadWeek();
+        } catch (loadErr) {
+          console.error(loadErr);
+        }
+      }
+    } else {
+      showToast('Could not save plan.');
+    }
   } finally {
     state.saving = false;
   }
@@ -264,6 +325,7 @@ function applyPlanRow(row) {
   state.groceryChecked = (row && row.grocery_checked) || {};
   state.snackAdds = (row && row.snack_adds) || [];
   state.manualItems = row && Array.isArray(row.manual_items) ? row.manual_items : [];
+  state.planUpdatedAt = (row && row.updated_at) || null;
 }
 
 async function loadWeek() {
@@ -585,9 +647,10 @@ function renderPickerList() {
     const li = document.createElement('li');
     li.className = 'meal-list-item';
     const note = DB.canPlan(meal) ? '' : '<div class="meta">No ingredients — won’t add to grocery.</div>';
+    const tagText = (meal.tags || []).slice(0, 3).map((t) => C.TAG_LABELS[t] || t).join(' · ');
     li.innerHTML = `
       <h4>${escapeHtml(meal.name)}</h4>
-      <div class="meta">${meal.prep_minutes || '—'} min · ${(meal.tags || []).slice(0, 3).map((t) => C.TAG_LABELS[t] || t).join(' · ')}</div>
+      <div class="meta">${meal.prep_minutes || '—'} min · ${escapeHtml(tagText)}</div>
       ${note}
       <div class="actions">
         <button type="button" class="btn btn-secondary btn-sm view-recipe">View</button>
@@ -973,21 +1036,24 @@ function openRecipeCard(mealId, context = {}) {
   if (!meal) return;
   document.getElementById('recipeTitle').textContent = meal.name;
   const tags = (meal.tags || []).slice(0, 4).map((t) => C.TAG_LABELS[t] || t).join(' · ');
+  const recipeLink = safeHttpUrl(meal.url);
   document.getElementById('recipeMeta').innerHTML = `
     ${meal.prep_minutes ? `<span>${meal.prep_minutes} min</span>` : ''}
     ${meal.servings ? `<span>Serves ${meal.servings}</span>` : ''}
     ${meal.added_by ? `<span>Added by ${escapeHtml(meal.added_by)}</span>` : ''}
     ${tags ? `<span>${escapeHtml(tags)}</span>` : ''}
-    ${meal.url ? `<span><a href="${escapeHtml(meal.url)}" target="_blank" rel="noopener">Open link</a></span>` : ''}
+    ${recipeLink ? `<span><a href="${escapeHtml(recipeLink)}" target="_blank" rel="noopener noreferrer">Open link</a></span>` : ''}
   `;
 
   const photos = document.getElementById('recipePhotos');
   photos.innerHTML = '';
-  if (meal.photo_url || meal.photo_url_back) {
+  const frontPhoto = safeHttpUrl(meal.photo_url);
+  const backPhoto = safeHttpUrl(meal.photo_url_back);
+  if (frontPhoto || backPhoto) {
     photos.className = 'thumb-row';
     photos.innerHTML = `
-      ${meal.photo_url ? `<a href="${escapeHtml(meal.photo_url)}" target="_blank"><img src="${escapeHtml(meal.photo_url)}" alt="Front"></a>` : ''}
-      ${meal.photo_url_back ? `<a href="${escapeHtml(meal.photo_url_back)}" target="_blank"><img src="${escapeHtml(meal.photo_url_back)}" alt="Back"></a>` : ''}`;
+      ${frontPhoto ? `<a href="${escapeHtml(frontPhoto)}" target="_blank" rel="noopener noreferrer"><img src="${escapeHtml(frontPhoto)}" alt="Front"></a>` : ''}
+      ${backPhoto ? `<a href="${escapeHtml(backPhoto)}" target="_blank" rel="noopener noreferrer"><img src="${escapeHtml(backPhoto)}" alt="Back"></a>` : ''}`;
   }
 
   const ings = meal.ingredients || [];
@@ -1175,11 +1241,12 @@ async function confirmAssign() {
   try {
     const sameWeek = targetWeek === state.weekStart;
     let plan;
+    let otherRow = null;
     if (sameWeek) {
       plan = state.plan || DB.emptyPlan();
     } else {
-      const row = await DB.getPlan(targetWeek);
-      plan = (row && row.plan) || DB.emptyPlan();
+      otherRow = await DB.getPlan(targetWeek);
+      plan = (otherRow && otherRow.plan) || DB.emptyPlan();
     }
     C.DAYS.forEach((d) => {
       if (!plan[d]) plan[d] = { breakfast: null, lunch: null, dinner: null };
@@ -1195,14 +1262,25 @@ async function confirmAssign() {
         : `Replace on ${dayLabel} ${slot}?`;
       if (!confirm(msg)) return;
     }
-    plan[day][slot] = recipeId;
+    plan[day][slot] = encodePlate(
+      { type: 'recipe', id: recipeId },
+      existing && existing.sides ? existing.sides : []
+    );
     if (sameWeek) {
       state.plan = plan;
       scheduleSave();
       renderCalendar();
       renderGrocery();
     } else {
-      await DB.savePlan(targetWeek, { plan });
+      try {
+        await DB.savePlan(targetWeek, { plan }, otherRow && otherRow.updated_at);
+      } catch (err) {
+        if (DB.isPlanConflict(err)) {
+          showToast('That week was updated on another phone. Try again.');
+          return;
+        }
+        throw err;
+      }
     }
     state.pendingAssignId = null;
     document.getElementById('assignModal').close();
@@ -1613,8 +1691,10 @@ async function handleSaveRecipe(e) {
 async function handleDeleteRecipe(id) {
   if (!confirm('Delete this recipe? It will also leave any planned slots empty.')) return;
   try {
-    await DB.deleteRecipe(id);
     await DB.removeRecipeFromAllPlans(id);
+    await DB.deleteRecipe(id);
+    const row = await DB.getPlan(state.weekStart);
+    if (row && row.updated_at) state.planUpdatedAt = row.updated_at;
     state.recipes = state.recipes.filter((r) => String(r.id) !== String(id));
     C.DAYS.forEach((d) => {
       C.MEAL_SLOTS.forEach((s) => {
@@ -1662,7 +1742,7 @@ function renderRecipeList() {
     const ready = DB.canPlan(recipe);
     const onList = isSnackAdd(recipe.id);
     const card = document.createElement('div');
-    const photo = recipe.photo_url;
+    const photo = safeHttpUrl(recipe.photo_url);
     card.className = 'recipe-card' + (photo ? ' has-photo' : '');
     const title = escapeHtml(recipe.name);
     card.innerHTML = `
@@ -2360,7 +2440,7 @@ function renderSnackList() {
     li.innerHTML = `
       <h4>${escapeHtml(meal.name)}</h4>
       ${inGrocery ? '<div class="meta">List only</div>' : ''}
-      <div class="meta">${(meal.ingredients || []).map((i) => i.item).join(', ')}</div>
+      <div class="meta">${escapeHtml((meal.ingredients || []).map((i) => i.item).join(', '))}</div>
       <div class="actions">
         <button type="button" class="btn ${inGrocery ? 'btn-ghost' : 'btn-primary'} btn-sm toggle-snack">
           ${inGrocery ? 'Remove from grocery' : 'Add to grocery list'}
@@ -2478,6 +2558,7 @@ async function resolveHousehold() {
   const stored = DB.readStoredHousehold();
   if (stored && stored.id) {
     try {
+      if (stored.code) DB.setFamilyAccess(stored.code);
       const row = await DB.getHousehold(stored.id);
       if (row) {
         await enterHousehold(row);

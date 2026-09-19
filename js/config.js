@@ -47,6 +47,8 @@
       'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InR0aG1vamZlcmN4ZW1ycWdoYmZtIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODQ4NTU0NDYsImV4cCI6MjEwMDQzMTQ0Nn0.QxtgLYQHpC-0KYuGGk6rzQcovY3drlXCSgIMeUNS3lY',
     HOUSEHOLD_ID: '',
     HOUSEHOLD: null,
+    FAMILY_CODE: '',
+    API_BASE: '',
     STORAGE_BUCKET: 'recipe-photos',
     DAYS,
     DAY_LABELS,
