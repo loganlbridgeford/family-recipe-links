@@ -1453,7 +1453,17 @@ const GROCERY_ALIASES = {
   'chicken breast': 'chicken breast',
   'chicken breasts': 'chicken breast',
   'breast chicken': 'chicken breast',
-  'breasts chicken': 'chicken breast'
+  'breasts chicken': 'chicken breast',
+  'unsalted butter': 'butter',
+  'butter unsalted': 'butter',
+  'olive oil': 'olive oil',
+  'oil olive': 'olive oil',
+  'extra virgin olive oil': 'olive oil',
+  'extra oil olive virgin': 'olive oil',
+  'ground beef': 'ground beef',
+  'beef ground': 'ground beef',
+  'beef mince': 'ground beef',
+  'mince beef': 'ground beef'
 };
 
 const QTY_UNIT_ALIASES = {
@@ -1571,27 +1581,36 @@ function addGroceryItem(items, ing, recipeName) {
   const row = items[key];
   if (!row.originals.includes(itemName)) row.originals.push(itemName);
   if (ing.qty) row.qtys.push(ing.qty);
-  if (source && !row.recipeNames.includes(source)) row.recipeNames.push(source);
+  if (source) row.recipeNames.push(source);
   if ((!row.section || row.section === 'other') && ing.section && ing.section !== 'other') {
     row.section = ing.section;
   }
 }
 
+function countedRecipeNames(names) {
+  const counts = {};
+  (names || []).forEach((n) => {
+    const name = String(n || '').trim();
+    if (name) counts[name] = (counts[name] || 0) + 1;
+  });
+  return Object.keys(counts)
+    .sort((a, b) => a.localeCompare(b))
+    .map((name) => (counts[name] > 1 ? `${name} ×${counts[name]}` : name));
+}
+
 function groceryItemParts(entry) {
-  const recipes = [...(entry.recipeNames || (entry.recipeName ? [entry.recipeName] : []))].sort((a, b) =>
-    a.localeCompare(b)
-  );
+  const recipes = countedRecipeNames(entry.recipeNames || (entry.recipeName ? [entry.recipeName] : []));
   const item = prettyGroceryName(entry.key || groceryItemKey(entry.item), entry.originals || [entry.item]);
   const qty = formatQtys(entry.qtys);
   return {
     name: qty ? `${item} — ${qty}` : item,
-    sub: recipes.length ? recipes.join(', ') : ''
+    sub: recipes
   };
 }
 
 function groceryItemLabel(entry) {
   const parts = groceryItemParts(entry);
-  return parts.sub ? `${parts.name} (${parts.sub})` : parts.name;
+  return parts.sub.length ? `${parts.name} (${parts.sub.join(', ')})` : parts.name;
 }
 
 function hiddenGroceryKeys() {
@@ -1863,7 +1882,7 @@ function renderGrocery() {
           <input type="checkbox" id="${id}" ${checked ? 'checked' : ''}>
           <label for="${id}">
             <span class="grocery-name">${escapeHtml(parts.name)}</span>
-            ${parts.sub ? `<span class="grocery-sub">${escapeHtml(parts.sub)}</span>` : ''}
+            ${parts.sub.map((line) => `<span class="grocery-sub">${escapeHtml(line)}</span>`).join('')}
           </label>`;
         row.querySelector('input').addEventListener('change', (e) => {
           state.groceryChecked[entry.key] = e.target.checked;

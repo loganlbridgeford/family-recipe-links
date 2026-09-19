@@ -680,7 +680,8 @@ textarea { min-height: unset; }
 .grocery-item.checked label { text-decoration: line-through; color: var(--text-muted); }
 
 .grocery-name { font-weight: 600; display: block; }
-.grocery-sub { display: block; font-size: 0.78rem; color: var(--text-muted); font-weight: 500; margin-top: 2px; }
+.grocery-sub { display: block; font-size: 0.78rem; color: var(--text-muted); font-weight: 500; margin-top: 2px; padding-left: 0.5rem; }
+.grocery-sub + .grocery-sub { margin-top: 0; }
 
 .grocery-item .remove-manual {
   margin-left: auto;
