@@ -95,21 +95,118 @@ function toggleSnackAdd(id) {
   scheduleSave();
 }
 
+function normalizeSides(rawSides) {
+  if (!Array.isArray(rawSides)) return [];
+  const sides = [];
+  rawSides.forEach((side) => {
+    if (!side || typeof side !== 'object') return;
+    if (side.type === 'recipe') {
+      if (side.id == null || String(side.id) === '') return;
+      sides.push({ type: 'recipe', id: side.id, recipe: getRecipe(side.id) });
+      return;
+    }
+    if (side.type === 'custom') {
+      const name = String(side.name || '').trim();
+      if (name) sides.push({ type: 'custom', name });
+    }
+  });
+  return sides;
+}
+
+function writeSides(sides) {
+  if (!Array.isArray(sides)) return [];
+  const out = [];
+  sides.forEach((side) => {
+    if (!side || typeof side !== 'object') return;
+    if (side.type === 'recipe' && side.id != null && String(side.id) !== '') {
+      out.push({ type: 'recipe', id: side.id });
+      return;
+    }
+    if (side.type === 'custom') {
+      const name = String(side.name || '').trim();
+      if (name) out.push({ type: 'custom', name });
+    }
+  });
+  return out;
+}
+
+function encodePlate(main, sides) {
+  const written = writeSides(sides);
+  if (!main) return null;
+  if (main.type === 'recipe') {
+    if (main.id == null || String(main.id) === '') {
+      return written.length ? { type: 'recipe', id: main.id, sides: written } : null;
+    }
+    if (!written.length) return main.id;
+    return { type: 'recipe', id: main.id, sides: written };
+  }
+  if (main.type === 'custom') {
+    const name = String(main.name || '').trim();
+    if (!name) return null;
+    if (!written.length) return { type: 'custom', name };
+    return { type: 'custom', name, sides: written };
+  }
+  return null;
+}
+
 function slotValue(plan, day, slot) {
   if (!plan || !plan[day]) return null;
   const raw = plan[day][slot];
   if (raw == null || raw === '') return null;
   if (typeof raw === 'object') {
-    const name = raw.type === 'custom' ? String(raw.name || '').trim() : '';
-    return name ? { type: 'custom', name } : null;
+    const sides = normalizeSides(raw.sides);
+    if (raw.type === 'recipe') {
+      return {
+        type: 'recipe',
+        id: raw.id,
+        recipe: raw.id != null ? getRecipe(raw.id) : null,
+        sides
+      };
+    }
+    if (raw.type === 'custom') {
+      const name = String(raw.name || '').trim();
+      return name ? { type: 'custom', name, sides } : null;
+    }
+    return null;
   }
-  return { type: 'recipe', id: raw, recipe: getRecipe(raw) };
+  return { type: 'recipe', id: raw, recipe: getRecipe(raw), sides: [] };
 }
 
 function slotName(val) {
   if (!val) return '';
   if (val.type === 'custom') return val.name;
   return (val.recipe && val.recipe.name) || 'Meal';
+}
+
+function plateNames(val) {
+  if (!val) return [];
+  const names = [];
+  const main = slotName(val);
+  if (main) names.push(main);
+  (val.sides || []).forEach((side) => {
+    const name = slotName(side);
+    if (name) names.push(name);
+  });
+  return names;
+}
+
+function plateLabel(val) {
+  return plateNames(val).join(', ');
+}
+
+function pickerPart(value) {
+  if (value && typeof value === 'object') {
+    if (value.type === 'recipe' && value.id != null && String(value.id) !== '') {
+      return { type: 'recipe', id: value.id };
+    }
+    if (value.type === 'custom') {
+      const name = String(value.name || '').trim();
+      return name ? { type: 'custom', name } : null;
+    }
+    return null;
+  }
+  if (value == null || value === '') return null;
+  return { type: 'recipe', id: value };
 }
 
 function defaultAddedBy() {
@@ -249,27 +346,38 @@ function todayDayKey() {
   return C.DAYS[diff];
 }
 
+function mealCellSidesHtml(val) {
+  return (val && val.sides ? val.sides : [])
+    .map((side) => {
+      const name = slotName(side);
+      return name ? `<span class="meal-cell-side">${escapeHtml(name)}</span>` : '';
+    })
+    .join('');
+}
+
 function mealCellContent(val, slot) {
   const slotHtml = `<span class="meal-cell-slot">${escapeHtml(C.SLOT_LABELS[slot])}</span>`;
   if (val && val.type === 'custom') {
     return {
       className: 'meal-cell',
       rowClass: 'meal-row filled custom',
-      html: `${slotHtml}<span class="meal-cell-name">${escapeHtml(val.name)}</span>`,
+      html: `${slotHtml}<span class="meal-cell-body"><span class="meal-cell-name">${escapeHtml(val.name)}</span>${mealCellSidesHtml(val)}</span>`,
       hasGrip: true
     };
   }
-  if (val && val.type === 'recipe' && val.recipe) {
+  if (val && val.type === 'recipe') {
     const meal = val.recipe;
-    const batch = (meal.tags || []).includes('batch-cook');
+    const batch = meal && (meal.tags || []).includes('batch-cook');
+    const meta = meal
+      ? `<span class="meal-cell-meta">
+          ${meal.prep_minutes ? `<span class="badge badge-time">${meal.prep_minutes} min</span>` : ''}
+          ${batch ? '<span class="badge badge-batch">Batch</span>' : ''}
+        </span>`
+      : '';
     return {
       className: 'meal-cell',
       rowClass: 'meal-row filled',
-      html: `${slotHtml}<span class="meal-cell-name">${escapeHtml(meal.name)}</span>
-        <span class="meal-cell-meta">
-          ${meal.prep_minutes ? `<span class="badge badge-time">${meal.prep_minutes} min</span>` : ''}
-          ${batch ? '<span class="badge badge-batch">Batch</span>' : ''}
-        </span>`,
+      html: `${slotHtml}<span class="meal-cell-body"><span class="meal-cell-main"><span class="meal-cell-name">${escapeHtml(slotName(val))}</span>${meta}</span>${mealCellSidesHtml(val)}</span>`,
       hasGrip: true
     };
   }
@@ -310,7 +418,11 @@ function renderTonight() {
     row.type = 'button';
     row.className = 'tonight-row';
     const name = val ? slotName(val) : 'Add';
-    row.innerHTML = `<span class="tonight-slot">${escapeHtml(C.SLOT_LABELS[slot])}</span><span class="tonight-name${val ? '' : ' empty'}">${escapeHtml(name)}</span>`;
+    const sideNames = val ? (val.sides || []).map(slotName).filter(Boolean) : [];
+    const sideLine = sideNames.length
+      ? `<span class="tonight-sides">${escapeHtml(sideNames.join(', '))}</span>`
+      : '';
+    row.innerHTML = `<span class="tonight-slot">${escapeHtml(C.SLOT_LABELS[slot])}</span><span class="tonight-body"><span class="tonight-name${val ? '' : ' empty'}">${escapeHtml(name)}</span>${sideLine}</span>`;
     row.addEventListener('click', () => {
       if (val && val.type === 'recipe' && val.recipe) {
         openRecipeCard(val.recipe.id, { fromCalendar: true, day, slot });
@@ -368,17 +480,38 @@ function renderCalendar() {
   renderTonight();
 }
 
-function openPicker(day, slot) {
-  state.pickerContext = { day, slot };
+function openPicker(day, slot, opts = {}) {
+  const asSide = !!opts.asSide;
+  state.pickerContext = { day, slot, asSide };
   state.pickerCategory = 'All';
-  document.getElementById('pickerTitle').textContent = `Choose ${C.SLOT_LABELS[slot]} — ${C.DAY_LABELS[C.DAYS.indexOf(day)]}`;
+  const dayLabel = C.DAY_LABELS[C.DAYS.indexOf(day)];
+  document.getElementById('pickerTitle').textContent = asSide
+    ? `Add a side — ${C.SLOT_LABELS[slot]} · ${dayLabel}`
+    : `Choose ${C.SLOT_LABELS[slot]} — ${dayLabel}`;
   document.getElementById('pickerSearch').value = '';
   const current = slotValue(state.plan, day, slot);
-  document.getElementById('customMealName').value = current && current.type === 'custom' ? current.name : '';
+  const nameInput = document.getElementById('customMealName');
+  nameInput.value = !asSide && current && current.type === 'custom' ? current.name : '';
+  nameInput.placeholder = asSide ? 'e.g. Rice' : 'e.g. Leftovers';
+  const nameLabel = document.querySelector('label[for="customMealName"]');
+  if (nameLabel) nameLabel.textContent = asSide ? 'Or type a side name' : 'Or type a meal name';
   document.getElementById('customSaveRecipe').checked = false;
+  document.getElementById('customMealAddBtn').textContent = asSide ? 'Add side' : 'Add to Calendar';
+  const clearBtn = document.getElementById('clearSlotBtn');
+  clearBtn.classList.toggle('hidden', asSide);
+  clearBtn.textContent = 'Clear this slot';
+  const plateEl = document.getElementById('pickerPlate');
+  if (plateEl) {
+    if (!asSide && current) renderSidesEditor(plateEl, day, slot);
+    else {
+      plateEl.hidden = true;
+      plateEl.innerHTML = '';
+    }
+  }
   renderPickerCategoryChips();
   renderPickerList();
-  document.getElementById('pickerModal').showModal();
+  const modal = document.getElementById('pickerModal');
+  if (!modal.open) modal.showModal();
 }
 
 function renderPickerCategoryChips() {
@@ -458,7 +591,7 @@ function renderPickerList() {
       ${note}
       <div class="actions">
         <button type="button" class="btn btn-secondary btn-sm view-recipe">View</button>
-        <button type="button" class="btn btn-primary btn-sm assign-meal">Add to calendar</button>
+        <button type="button" class="btn btn-primary btn-sm assign-meal">${state.pickerContext && state.pickerContext.asSide ? 'Add side' : 'Add to calendar'}</button>
       </div>`;
     li.querySelector('.view-recipe').addEventListener('click', () => openRecipeCard(meal.id, { fromPicker: true }));
     li.querySelector('.assign-meal').addEventListener('click', () => selectMeal(meal.id));
@@ -474,7 +607,7 @@ async function addCustomMeal() {
   if (!state.pickerContext) return;
   const name = document.getElementById('customMealName').value.trim();
   if (!name) {
-    showToast('Type a meal name first.');
+    showToast(state.pickerContext.asSide ? 'Type a side name first.' : 'Type a meal name first.');
     return;
   }
   if (document.getElementById('customSaveRecipe').checked) {
@@ -506,8 +639,21 @@ async function addCustomMeal() {
 
 function assignPickerValue(value) {
   if (!state.pickerContext) return;
-  const { day, slot } = state.pickerContext;
-  state.plan[day][slot] = value;
+  const { day, slot, asSide } = state.pickerContext;
+  const part = pickerPart(value);
+  if (!part) return;
+  const current = slotValue(state.plan, day, slot);
+  if (asSide) {
+    if (!current) return;
+    state.plan[day][slot] = encodePlate(current, (current.sides || []).concat([part]));
+    document.getElementById('pickerModal').close();
+    renderCalendar();
+    renderGrocery();
+    scheduleSave();
+    showToast('Side added.');
+    return;
+  }
+  state.plan[day][slot] = encodePlate(part, current && current.sides ? current.sides : []);
   document.getElementById('pickerModal').close();
   renderCalendar();
   renderGrocery();
@@ -517,12 +663,81 @@ function assignPickerValue(value) {
 
 function clearSlot() {
   if (!state.pickerContext) return;
+  if (state.pickerContext.asSide) {
+    document.getElementById('pickerModal').close();
+    return;
+  }
   const { day, slot } = state.pickerContext;
   state.plan[day][slot] = null;
   document.getElementById('pickerModal').close();
   renderCalendar();
   renderGrocery();
   scheduleSave();
+}
+
+function removePlateSide(day, slot, index) {
+  const val = slotValue(state.plan, day, slot);
+  if (!val) return;
+  const sides = (val.sides || []).slice();
+  if (index < 0 || index >= sides.length) return;
+  sides.splice(index, 1);
+  state.plan[day][slot] = encodePlate(val, sides);
+  renderCalendar();
+  renderGrocery();
+  scheduleSave();
+}
+
+function startAddSide(day, slot) {
+  const recipeModal = document.getElementById('recipeModal');
+  if (recipeModal && recipeModal.open) recipeModal.close();
+  openPicker(day, slot, { asSide: true });
+}
+
+function renderSidesEditor(container, day, slot) {
+  if (!container) return;
+  const val = slotValue(state.plan, day, slot);
+  if (!val) {
+    container.hidden = true;
+    container.innerHTML = '';
+    return;
+  }
+  container.hidden = false;
+  container.innerHTML = '';
+  const heading = document.createElement('h3');
+  heading.textContent = 'Sides';
+  container.appendChild(heading);
+  const list = document.createElement('div');
+  list.className = 'plate-side-list';
+  (val.sides || []).forEach((side, index) => {
+    const row = document.createElement('div');
+    row.className = 'plate-side-row';
+    const name = document.createElement('span');
+    name.className = 'plate-side-name';
+    name.textContent = slotName(side);
+    const rm = document.createElement('button');
+    rm.type = 'button';
+    rm.className = 'btn btn-ghost btn-sm';
+    rm.textContent = 'Remove';
+    rm.addEventListener('click', (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      removePlateSide(day, slot, index);
+      renderSidesEditor(container, day, slot);
+    });
+    row.appendChild(name);
+    row.appendChild(rm);
+    list.appendChild(row);
+  });
+  container.appendChild(list);
+  const add = document.createElement('button');
+  add.type = 'button';
+  add.className = 'btn btn-secondary btn-block';
+  add.textContent = 'Add a side';
+  add.addEventListener('click', (e) => {
+    e.preventDefault();
+    startAddSide(day, slot);
+  });
+  container.appendChild(add);
 }
 
 function moveSlot(fromDay, fromSlot, toDay, toSlot) {
@@ -559,7 +774,7 @@ function beginMealDrag() {
   document.body.classList.add('is-meal-dragging');
   const ghost = document.createElement('div');
   ghost.className = 'meal-drag-ghost';
-  ghost.textContent = slotName(slotValue(state.plan, drag.day, drag.slot));
+  ghost.textContent = plateLabel(slotValue(state.plan, drag.day, drag.slot));
   document.body.appendChild(ghost);
   ghost.style.left = `${drag.x}px`;
   ghost.style.top = `${drag.y}px`;
@@ -574,7 +789,7 @@ function onGridPointerDown(e) {
   if (!row) return;
   const { day, slot } = row.dataset;
   const val = slotValue(state.plan, day, slot);
-  if (!val || (val.type === 'recipe' && !val.recipe)) return;
+  if (!val) return;
   e.preventDefault();
   e.stopPropagation();
   drag = {
@@ -655,7 +870,11 @@ function getUsedMealIds() {
   C.DAYS.forEach((d) => {
     C.MEAL_SLOTS.forEach((s) => {
       const val = slotValue(state.plan, d, s);
-      if (val && val.type === 'recipe') used.add(String(val.id));
+      if (!val) return;
+      if (val.type === 'recipe' && val.id != null) used.add(String(val.id));
+      (val.sides || []).forEach((side) => {
+        if (side && side.type === 'recipe' && side.id != null) used.add(String(side.id));
+      });
     });
   });
   return used;
@@ -790,12 +1009,20 @@ function openRecipeCard(mealId, context = {}) {
       : '<li>No cooking steps yet.</li>';
   document.getElementById('recipeTip').innerHTML = instr.tips ? `<strong>Tip:</strong> ${escapeHtml(instr.tips)}` : '';
 
+  const plateEl = document.getElementById('recipePlate');
+  if (context.fromCalendar && context.day && context.slot) {
+    renderSidesEditor(plateEl, context.day, context.slot);
+  } else if (plateEl) {
+    plateEl.hidden = true;
+    plateEl.innerHTML = '';
+  }
+
   const actions = document.getElementById('recipeActions');
   actions.innerHTML = '';
   if (context.fromPicker && state.pickerContext) {
     const btn = document.createElement('button');
     btn.className = 'btn btn-primary';
-    btn.textContent = 'Add to calendar';
+    btn.textContent = state.pickerContext.asSide ? 'Add as side' : 'Add to calendar';
     btn.addEventListener('click', () => {
       selectMeal(meal.id);
       document.getElementById('recipeModal').close();
@@ -1392,7 +1619,13 @@ async function handleDeleteRecipe(id) {
     C.DAYS.forEach((d) => {
       C.MEAL_SLOTS.forEach((s) => {
         const val = slotValue(state.plan, d, s);
-        if (val && val.type === 'recipe' && String(val.id) === String(id)) state.plan[d][s] = null;
+        if (!val) return;
+        if (val.type === 'recipe' && String(val.id) === String(id)) {
+          state.plan[d][s] = null;
+          return;
+        }
+        const sides = (val.sides || []).filter((side) => !(side.type === 'recipe' && String(side.id) === String(id)));
+        if (sides.length !== (val.sides || []).length) state.plan[d][s] = encodePlate(val, sides);
       });
     });
     state.snackAdds = state.snackAdds.filter((sid) => String(sid) !== String(id));
@@ -1678,8 +1911,13 @@ function getGroceryItems() {
   C.DAYS.forEach((day) => {
     C.MEAL_SLOTS.forEach((slot) => {
       const val = slotValue(state.plan, day, slot);
-      if (!val || val.type !== 'recipe' || !val.recipe || !DB.canPlan(val.recipe)) return;
-      addRecipeGrocery(items, val.recipe);
+      if (!val) return;
+      if (val.type === 'recipe' && val.recipe && DB.canPlan(val.recipe)) addRecipeGrocery(items, val.recipe);
+      (val.sides || []).forEach((side) => {
+        if (side && side.type === 'recipe' && side.recipe && DB.canPlan(side.recipe)) {
+          addRecipeGrocery(items, side.recipe);
+        }
+      });
     });
   });
   state.snackAdds.forEach((id) => {
@@ -2050,7 +2288,7 @@ function downloadWeekIcs() {
     C.MEAL_SLOTS.forEach((slot) => {
       const val = slotValue(state.plan, day, slot);
       if (!val) return;
-      const name = slotName(val);
+      const name = plateLabel(val);
       if (!name) return;
       const date = getDayDate(state.weekStart, index);
       const end = new Date(date);

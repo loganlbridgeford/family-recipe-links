@@ -10,7 +10,7 @@
   <link rel="manifest" href="manifest.webmanifest">
   <link rel="apple-touch-icon" href="icons/apple-touch-icon.png">
   <link rel="icon" href="icons/icon.svg" type="image/svg+xml">
-  <link rel="stylesheet" href="styles.css?v=app-shell-5">
+  <link rel="stylesheet" href="styles.css?v=app-shell-6">
 </head>
 <body>
   <div class="app">
@@ -259,6 +259,7 @@
         </label>
         <button type="button" class="btn btn-primary btn-block" id="customMealAddBtn">Add to Calendar</button>
       </div>
+      <div class="plate-sides" id="pickerPlate" hidden></div>
       <input type="search" class="search-input" id="pickerSearch" placeholder="Search recipes…">
       <div class="filter-chips" id="pickerFilters"></div>
       <ul class="meal-list" id="pickerMealList"></ul>
@@ -310,6 +311,7 @@
         <ol class="recipe-steps" id="recipeSteps"></ol>
       </div>
       <div class="recipe-tip" id="recipeTip"></div>
+      <div class="plate-sides" id="recipePlate" hidden></div>
       <div class="recipe-actions" id="recipeActions"></div>
     </div>
   </dialog>
@@ -347,8 +349,8 @@
   </dialog>
 
   <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
-  <script src="js/config.js?v=app-shell-5"></script>
-  <script src="js/db.js?v=app-shell-5"></script>
-  <script src="app.js?v=app-shell-5"></script>
+  <script src="js/config.js?v=app-shell-6"></script>
+  <script src="js/db.js?v=app-shell-6"></script>
+  <script src="app.js?v=app-shell-6"></script>
 </body>
 </html>

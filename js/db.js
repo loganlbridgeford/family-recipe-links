@@ -327,6 +327,43 @@
     throw error;
   }
 
+  function stripRecipeFromSlot(raw, recipeId) {
+    const id = String(recipeId);
+    if (raw == null || raw === '') return { raw, changed: false };
+    if (typeof raw !== 'object') {
+      if (String(raw) === id) return { raw: null, changed: true };
+      return { raw, changed: false };
+    }
+    if (raw.type === 'recipe' && raw.id != null && String(raw.id) === id) {
+      return { raw: null, changed: true };
+    }
+    const sides = Array.isArray(raw.sides) ? raw.sides : [];
+    const nextSides = sides.filter((side) => {
+      if (!side || typeof side !== 'object' || side.type !== 'recipe') return true;
+      return side.id == null || String(side.id) !== id;
+    });
+    if (nextSides.length === sides.length) return { raw, changed: false };
+    if (!nextSides.length) {
+      if (raw.type === 'recipe' && raw.id != null && String(raw.id) !== '') {
+        return { raw: raw.id, changed: true };
+      }
+      if (raw.type === 'custom') {
+        const name = String(raw.name || '').trim();
+        return { raw: name ? { type: 'custom', name } : null, changed: true };
+      }
+      return { raw: null, changed: true };
+    }
+    if (raw.type === 'recipe' && raw.id != null && String(raw.id) !== '') {
+      return { raw: { type: 'recipe', id: raw.id, sides: nextSides }, changed: true };
+    }
+    if (raw.type === 'custom') {
+      const name = String(raw.name || '').trim();
+      if (!name) return { raw: null, changed: true };
+      return { raw: { type: 'custom', name, sides: nextSides }, changed: true };
+    }
+    return { raw: Object.assign({}, raw, { sides: nextSides }), changed: true };
+  }
+
   async function removeRecipeFromAllPlans(recipeId) {
     const { data, error } = await getClient()
       .from('meal_plans')
@@ -340,8 +377,9 @@
       C.DAYS.forEach((day) => {
         C.MEAL_SLOTS.forEach((slot) => {
           const raw = plan[day] && plan[day][slot];
-          if (raw != null && typeof raw !== 'object' && String(raw) === String(recipeId)) {
-            plan[day][slot] = null;
+          const next = stripRecipeFromSlot(raw, recipeId);
+          if (next.changed) {
+            plan[day][slot] = next.raw;
             changed = true;
           }
         });
