@@ -17,6 +17,9 @@ const state = {
   pendingAssignId: null,
   assignDay: 'mon',
   assignSlot: 'breakfast',
+  assignWeekStart: null,
+  assignPlan: null,
+  assignSaving: false,
   saveTimer: null,
   saving: false
 };
@@ -813,27 +816,58 @@ function openRecipeCard(mealId, context = {}) {
 
 function openAssignModal(mealId) {
   state.pendingAssignId = mealId;
-  state.assignDay = C.DAYS[0];
+  state.assignWeekStart = state.weekStart;
+  state.assignPlan = null;
+  state.assignDay = todayDayKey() || C.DAYS[0];
   state.assignSlot = 'breakfast';
   const meal = getRecipe(mealId);
   if (meal && (meal.meal_types || []).length === 1 && C.MEAL_SLOTS.includes(meal.meal_types[0])) {
     state.assignSlot = meal.meal_types[0];
   }
-  document.getElementById('assignWeekLabel').textContent = formatWeekLabel(state.weekStart);
+  const btn = document.getElementById('confirmAssignBtn');
+  if (btn) btn.disabled = false;
+  document.getElementById('assignWeekLabel').textContent = formatWeekLabel(state.assignWeekStart);
   renderAssignWeek();
   renderAssignSlots();
   document.getElementById('assignModal').showModal();
 }
 
+async function changeAssignWeek(offsetDays) {
+  const next = parseDate(state.assignWeekStart || state.weekStart);
+  next.setDate(next.getDate() + offsetDays);
+  state.assignWeekStart = getMondayISO(next);
+  state.assignPlan = null;
+  document.getElementById('assignWeekLabel').textContent = formatWeekLabel(state.assignWeekStart);
+  renderAssignWeek();
+  if (state.assignWeekStart === state.weekStart) return;
+  const week = state.assignWeekStart;
+  try {
+    const row = await DB.getPlan(week);
+    if (state.assignWeekStart !== week) return;
+    const plan = (row && row.plan) || DB.emptyPlan();
+    C.DAYS.forEach((day) => {
+      if (!plan[day]) plan[day] = { breakfast: null, lunch: null, dinner: null };
+    });
+    state.assignPlan = plan;
+    renderAssignWeek();
+  } catch (err) {
+    if (state.assignWeekStart !== week) return;
+    console.error(err);
+    showToast('Could not load that week’s plan.');
+  }
+}
+
 function renderAssignWeek() {
   const wrap = document.getElementById('assignWeek');
   wrap.innerHTML = '';
+  const weekStart = state.assignWeekStart || state.weekStart;
+  const plan = weekStart === state.weekStart ? state.plan : state.assignPlan;
   C.DAYS.forEach((day, i) => {
-    const date = getDayDate(state.weekStart, i);
+    const date = getDayDate(weekStart, i);
     const btn = document.createElement('button');
     btn.type = 'button';
     btn.className = 'assign-day' + (state.assignDay === day ? ' active' : '');
-    if (slotValue(state.plan, day, state.assignSlot)) btn.classList.add('has-meal');
+    if (plan && slotValue(plan, day, state.assignSlot)) btn.classList.add('has-meal');
     btn.innerHTML = `<span class="dow">${C.DAY_LABELS[i]}</span><span class="num">${date.getDate()}</span>`;
     btn.addEventListener('click', () => {
       state.assignDay = day;
@@ -860,18 +894,65 @@ function renderAssignSlots() {
   });
 }
 
-function confirmAssign() {
+async function confirmAssign() {
+  if (state.assignSaving) return;
   if (!state.pendingAssignId || !state.assignDay || !state.assignSlot) return;
   const day = state.assignDay;
   const slot = state.assignSlot;
-  state.plan[day][slot] = state.pendingAssignId;
-  state.pendingAssignId = null;
-  document.getElementById('assignModal').close();
-  document.getElementById('recipeModal').close();
-  renderCalendar();
-  renderGrocery();
-  scheduleSave();
-  showToast(`Assigned to ${C.DAY_LABELS[C.DAYS.indexOf(day)]} ${C.SLOT_LABELS[slot]}.`);
+  const recipeId = state.pendingAssignId;
+  const targetWeek = state.assignWeekStart || state.weekStart;
+  const dayIndex = C.DAYS.indexOf(day);
+  const dayLabel = C.DAY_LABELS[dayIndex];
+  const dateLabel = getDayDate(targetWeek, dayIndex).toLocaleDateString('en-US', {
+    month: 'short',
+    day: 'numeric'
+  });
+  const btn = document.getElementById('confirmAssignBtn');
+  state.assignSaving = true;
+  if (btn) btn.disabled = true;
+  try {
+    const sameWeek = targetWeek === state.weekStart;
+    let plan;
+    if (sameWeek) {
+      plan = state.plan || DB.emptyPlan();
+    } else {
+      const row = await DB.getPlan(targetWeek);
+      plan = (row && row.plan) || DB.emptyPlan();
+    }
+    C.DAYS.forEach((d) => {
+      if (!plan[d]) plan[d] = { breakfast: null, lunch: null, dinner: null };
+    });
+    const existing = slotValue(plan, day, slot);
+    if (existing) {
+      const name =
+        existing.type === 'custom'
+          ? String(existing.name || '').trim()
+          : String((existing.recipe && existing.recipe.name) || '').trim();
+      const msg = name
+        ? `Replace ${name} on ${dayLabel} ${slot}?`
+        : `Replace on ${dayLabel} ${slot}?`;
+      if (!confirm(msg)) return;
+    }
+    plan[day][slot] = recipeId;
+    if (sameWeek) {
+      state.plan = plan;
+      scheduleSave();
+      renderCalendar();
+      renderGrocery();
+    } else {
+      await DB.savePlan(targetWeek, { plan });
+    }
+    state.pendingAssignId = null;
+    document.getElementById('assignModal').close();
+    document.getElementById('recipeModal').close();
+    showToast(`Assigned to ${dayLabel} ${slot}, ${dateLabel}`);
+  } catch (err) {
+    console.error(err);
+    showToast('Could not assign meal.');
+  } finally {
+    state.assignSaving = false;
+    if (btn) btn.disabled = false;
+  }
 }
 
 /* ---------- Recipes tab ---------- */
@@ -2298,6 +2379,8 @@ async function init() {
     document.getElementById('snacksModal').showModal();
   });
   document.getElementById('snackSearch').addEventListener('input', renderSnackList);
+  document.getElementById('assignPrevWeek').addEventListener('click', () => changeAssignWeek(-7));
+  document.getElementById('assignNextWeek').addEventListener('click', () => changeAssignWeek(7));
   document.getElementById('confirmAssignBtn').addEventListener('click', confirmAssign);
   document.getElementById('recipeForm').addEventListener('submit', handleSaveRecipe);
   document.getElementById('importRecipeBtn').addEventListener('click', pullIngredientsFromLink);

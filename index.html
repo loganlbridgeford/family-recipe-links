@@ -321,7 +321,11 @@
       <button type="button" class="btn btn-ghost btn-sm modal-close" data-close="assignModal">Done</button>
     </div>
     <div class="sheet-body">
-      <p class="hint" id="assignWeekLabel"></p>
+      <div class="week-bar">
+        <button type="button" class="btn btn-icon" id="assignPrevWeek" aria-label="Previous week">◀</button>
+        <span class="week-label" id="assignWeekLabel"></span>
+        <button type="button" class="btn btn-icon" id="assignNextWeek" aria-label="Next week">▶</button>
+      </div>
       <div class="assign-week" id="assignWeek" role="group" aria-label="Day"></div>
       <label class="field-label">Meal</label>
       <div class="assign-slots" id="assignSlots" role="group" aria-label="Meal"></div>
