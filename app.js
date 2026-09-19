@@ -79,6 +79,22 @@ function getRecipe(id) {
   return state.recipes.find((r) => String(r.id) === String(id)) || null;
 }
 
+function isSnackAdd(id) {
+  return state.snackAdds.some((sid) => String(sid) === String(id));
+}
+
+function toggleSnackAdd(id) {
+  if (isSnackAdd(id)) {
+    state.snackAdds = state.snackAdds.filter((sid) => String(sid) !== String(id));
+  } else {
+    state.snackAdds.push(id);
+  }
+  renderRecipeList();
+  renderSnackList();
+  renderGrocery();
+  scheduleSave();
+}
+
 function slotValue(plan, day, slot) {
   if (!plan || !plan[day]) return null;
   const raw = plan[day][slot];
@@ -159,6 +175,8 @@ async function loadWeek() {
   renderWeekLabel();
   renderCalendar();
   renderGrocery();
+  renderRecipeList();
+  renderSnackList();
 }
 
 let refetchTimer = null;
@@ -179,6 +197,8 @@ async function refetchOpenWeek() {
     renderWeekLabel();
     renderCalendar();
     renderGrocery();
+    renderRecipeList();
+    renderSnackList();
   } catch (err) {
     console.error(err);
   }
@@ -811,6 +831,21 @@ function openRecipeCard(mealId, context = {}) {
     btn.addEventListener('click', () => openAssignModal(meal.id));
     actions.appendChild(btn);
   }
+  if (DB.canPlan(meal)) {
+    const groceryBtn = document.createElement('button');
+    groceryBtn.type = 'button';
+    const syncGroceryBtn = () => {
+      const on = isSnackAdd(meal.id);
+      groceryBtn.className = 'btn ' + (on ? 'btn-ghost' : 'btn-primary');
+      groceryBtn.textContent = on ? 'On this week’s list' : 'Add to grocery';
+    };
+    syncGroceryBtn();
+    groceryBtn.addEventListener('click', () => {
+      toggleSnackAdd(meal.id);
+      syncGroceryBtn();
+    });
+    actions.appendChild(groceryBtn);
+  }
   document.getElementById('recipeModal').showModal();
 }
 
@@ -1362,6 +1397,7 @@ async function handleDeleteRecipe(id) {
     });
     state.snackAdds = state.snackAdds.filter((sid) => String(sid) !== String(id));
     renderRecipeList();
+    renderSnackList();
     renderCalendar();
     renderGrocery();
     scheduleSave();
@@ -1391,6 +1427,7 @@ function renderRecipeList() {
   container.innerHTML = '';
   list.forEach((recipe) => {
     const ready = DB.canPlan(recipe);
+    const onList = isSnackAdd(recipe.id);
     const card = document.createElement('div');
     const photo = recipe.photo_url;
     card.className = 'recipe-card' + (photo ? ' has-photo' : '');
@@ -1404,13 +1441,12 @@ function renderRecipeList() {
         <div class="recipe-meta">
           ${escapeHtml(recipe.added_by || '')}${recipe.prep_minutes ? ` · ${recipe.prep_minutes} min` : ''}
         </div>
-        <div>${ready
-          ? '<span class="badge badge-ready">On grocery</span>'
-          : '<span class="badge badge-needs">No grocery items</span>'}</div>
+        ${ready ? '' : '<div><span class="badge badge-needs">No grocery items</span></div>'}
         <div class="recipe-card-actions">
           <button type="button" class="btn btn-secondary btn-sm view-btn">View</button>
           <button type="button" class="btn btn-ghost btn-sm edit-btn">Edit</button>
           <button type="button" class="btn btn-primary btn-sm assign-btn">Assign</button>
+          ${ready ? `<button type="button" class="btn ${onList ? 'btn-ghost' : 'btn-primary'} btn-sm grocery-toggle-btn">${onList ? 'On this week’s list' : 'Add to grocery'}</button>` : ''}
         </div>
       </div>`;
     card.querySelector('.delete-btn').addEventListener('click', (e) => {
@@ -1420,6 +1456,8 @@ function renderRecipeList() {
     card.querySelector('.view-btn').addEventListener('click', () => openRecipeCard(recipe.id, { fromLibrary: true }));
     card.querySelector('.edit-btn').addEventListener('click', () => openEditForm(recipe));
     card.querySelector('.assign-btn').addEventListener('click', () => openAssignModal(recipe.id));
+    const groceryBtn = card.querySelector('.grocery-toggle-btn');
+    if (groceryBtn) groceryBtn.addEventListener('click', () => toggleSnackAdd(recipe.id));
     container.appendChild(card);
   });
 }
@@ -2061,38 +2099,36 @@ function downloadWeekIcs() {
 }
 
 function renderSnackList() {
-  const q = document.getElementById('snackSearch').value.trim().toLowerCase();
-  const snacks = state.recipes.filter((m) => {
-    if (!(m.meal_types || []).includes('snack')) return false;
+  const searchEl = document.getElementById('snackSearch');
+  const list = document.getElementById('snackList');
+  if (!searchEl || !list) return;
+  const q = searchEl.value.trim().toLowerCase();
+  const recipes = state.recipes.filter((m) => {
     if (!DB.canPlan(m)) return false;
     if (q && !m.name.toLowerCase().includes(q)) return false;
     return true;
-  });
-  const list = document.getElementById('snackList');
+  }).sort((a, b) => a.name.localeCompare(b.name));
   list.innerHTML = '';
-  if (!snacks.length) {
-    list.innerHTML = '<li class="meal-list-item">No snack recipes with ingredients yet.</li>';
+  if (!recipes.length) {
+    list.innerHTML = q
+      ? '<li class="meal-list-item">No matching recipes with ingredients.</li>'
+      : '<li class="meal-list-item">No recipes with ingredients yet.</li>';
     return;
   }
-  snacks.forEach((meal) => {
-    const inGrocery = state.snackAdds.map(String).includes(String(meal.id));
+  recipes.forEach((meal) => {
+    const inGrocery = isSnackAdd(meal.id);
     const li = document.createElement('li');
     li.className = 'meal-list-item';
     li.innerHTML = `
       <h4>${escapeHtml(meal.name)}</h4>
+      ${inGrocery ? '<div class="meta">List only</div>' : ''}
       <div class="meta">${(meal.ingredients || []).map((i) => i.item).join(', ')}</div>
       <div class="actions">
         <button type="button" class="btn ${inGrocery ? 'btn-ghost' : 'btn-primary'} btn-sm toggle-snack">
           ${inGrocery ? 'Remove from grocery' : 'Add to grocery list'}
         </button>
       </div>`;
-    li.querySelector('.toggle-snack').addEventListener('click', () => {
-      if (inGrocery) state.snackAdds = state.snackAdds.filter((id) => String(id) !== String(meal.id));
-      else state.snackAdds.push(meal.id);
-      renderSnackList();
-      renderGrocery();
-      scheduleSave();
-    });
+    li.querySelector('.toggle-snack').addEventListener('click', () => toggleSnackAdd(meal.id));
     list.appendChild(li);
   });
 }
@@ -2366,6 +2402,8 @@ async function init() {
     if (clearExtras) state.manualItems = [];
     renderCalendar();
     renderGrocery();
+    renderRecipeList();
+    renderSnackList();
     scheduleSave();
   });
   document.getElementById('manualGroceryBtn').addEventListener('click', addManualGrocery);
