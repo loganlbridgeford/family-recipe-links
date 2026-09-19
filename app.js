@@ -1884,6 +1884,10 @@ function icsLocalStamp(date, hour, minute) {
   );
 }
 
+function icsDateStamp(date) {
+  return `${date.getFullYear()}${pad2(date.getMonth() + 1)}${pad2(date.getDate())}`;
+}
+
 function icsUtcNow() {
   const d = new Date();
   return (
@@ -1893,7 +1897,6 @@ function icsUtcNow() {
 }
 
 function downloadWeekIcs() {
-  const times = { breakfast: [7, 30], lunch: [12, 0], dinner: [18, 0] };
   const stamp = icsUtcNow();
   const events = [];
   C.DAYS.forEach((day, index) => {
@@ -1903,16 +1906,21 @@ function downloadWeekIcs() {
       const name = slotName(val);
       if (!name) return;
       const date = getDayDate(state.weekStart, index);
-      const [hour, minute] = times[slot] || [18, 0];
+      const end = new Date(date);
+      end.setDate(end.getDate() + 1);
       const uid = `family-plan-${state.weekStart}-${day}-${slot}@family-planner`;
+      const summary = `${C.SLOT_LABELS[slot]} — ${name}`;
       events.push(
         [
           'BEGIN:VEVENT',
           `UID:${uid}`,
           `DTSTAMP:${stamp}`,
-          `DTSTART:${icsLocalStamp(date, hour, minute)}`,
-          'DURATION:PT1H',
-          `SUMMARY:${icsEscape(name)}`,
+          `DTSTART;VALUE=DATE:${icsDateStamp(date)}`,
+          `DTEND;VALUE=DATE:${icsDateStamp(end)}`,
+          'TRANSP:TRANSPARENT',
+          'X-MICROSOFT-CDO-ALLDAYEVENT:TRUE',
+          'X-MICROSOFT-CDO-BUSYSTATUS:FREE',
+          `SUMMARY:${icsEscape(summary)}`,
           'DESCRIPTION:From Family Planner',
           'END:VEVENT'
         ].join('\r\n')
