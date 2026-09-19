@@ -1431,7 +1431,7 @@ const GROCERY_PREP_WORDS = new Set([
   'softened', 'melted', 'divided', 'optional', 'finely', 'roughly', 'fresh',
   'large', 'small', 'medium', 'whole', 'thinly', 'coarsely', 'plus', 'more',
   'taste', 'to', 'clove', 'cloves', 'packed', 'thawed', 'drained', 'rinsed',
-  'room', 'temperature', 'and', 'or', 'of', 'for', 'the'
+  'room', 'temperature', 'and', 'or', 'of', 'for', 'the', 'unbleached', 'bleached'
 ]);
 
 const GROCERY_ALIASES = {
@@ -1561,12 +1561,11 @@ function formatQtys(qtys) {
   return raw.join(' + ');
 }
 
-function addGroceryItem(items, ing, recipeName) {
+function addGroceryItem(items, ing) {
   const itemName = (ing.item || '').trim();
-  if (!itemName) return;
-  const source = (recipeName || '').trim();
+  if (!itemName) return '';
   const key = groceryItemKey(itemName);
-  if (!key) return;
+  if (!key) return '';
   if (!items[key]) {
     items[key] = {
       key,
@@ -1574,17 +1573,29 @@ function addGroceryItem(items, ing, recipeName) {
       originals: [itemName],
       qtys: ing.qty ? [ing.qty] : [],
       section: ing.section || 'other',
-      recipeNames: source ? [source] : []
+      recipeNames: []
     };
-    return;
+    return key;
   }
   const row = items[key];
   if (!row.originals.includes(itemName)) row.originals.push(itemName);
   if (ing.qty) row.qtys.push(ing.qty);
-  if (source) row.recipeNames.push(source);
   if ((!row.section || row.section === 'other') && ing.section && ing.section !== 'other') {
     row.section = ing.section;
   }
+  return key;
+}
+
+function addRecipeGrocery(items, recipe) {
+  if (!recipe) return;
+  const source = (recipe.name || '').trim();
+  const seen = new Set();
+  (recipe.ingredients || []).forEach((ing) => {
+    const key = addGroceryItem(items, ing);
+    if (key) seen.add(key);
+  });
+  if (!source) return;
+  seen.forEach((key) => items[key].recipeNames.push(source));
 }
 
 function countedRecipeNames(names) {
@@ -1630,14 +1641,12 @@ function getGroceryItems() {
     C.MEAL_SLOTS.forEach((slot) => {
       const val = slotValue(state.plan, day, slot);
       if (!val || val.type !== 'recipe' || !val.recipe || !DB.canPlan(val.recipe)) return;
-      (val.recipe.ingredients || []).forEach((ing) => addGroceryItem(items, ing, val.recipe.name));
+      addRecipeGrocery(items, val.recipe);
     });
   });
   state.snackAdds.forEach((id) => {
     const meal = getRecipe(id);
-    if (meal && DB.canPlan(meal)) {
-      (meal.ingredients || []).forEach((ing) => addGroceryItem(items, ing, meal.name));
-    }
+    if (meal && DB.canPlan(meal)) addRecipeGrocery(items, meal);
   });
   hiddenGroceryKeys().forEach((key) => {
     delete items[key];
