@@ -2404,11 +2404,24 @@ function downloadWeekIcs() {
     ...events,
     'END:VCALENDAR'
   ].join('\r\n') + '\r\n';
+  const filename = `family-plan-${state.weekStart}.ics`;
   const blob = new Blob([ics], { type: 'text/calendar;charset=utf-8' });
+  const file = new File([blob], filename, { type: 'text/calendar' });
+  if (navigator.share && navigator.canShare && navigator.canShare({ files: [file] })) {
+    navigator.share({ title: 'Family plan', files: [file] }).catch((err) => {
+      if (err && err.name === 'AbortError') return;
+      fallbackDownloadIcs(blob, filename);
+    });
+    return;
+  }
+  fallbackDownloadIcs(blob, filename);
+}
+
+function fallbackDownloadIcs(blob, filename) {
   const href = URL.createObjectURL(blob);
   const a = document.createElement('a');
   a.href = href;
-  a.download = `family-plan-${state.weekStart}.ics`;
+  a.download = filename;
   document.body.appendChild(a);
   a.click();
   a.remove();

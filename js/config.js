@@ -48,6 +48,9 @@
     HOUSEHOLD_ID: '',
     HOUSEHOLD: null,
     FAMILY_CODE: '',
+    // Empty on the Vercel website (import posts to /api/import-recipe).
+    // The iPhone app copy sets this to https://family-recipe-links.vercel.app
+    // so pull-from-link does not look for an API on the phone.
     API_BASE: '',
     STORAGE_BUCKET: 'recipe-photos',
     DAYS,
