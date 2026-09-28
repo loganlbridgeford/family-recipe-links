@@ -510,7 +510,11 @@
     const board = raw && typeof raw === 'object' ? raw : emptyChoreBoard();
     const next = {
       kids: Array.isArray(board.kids) ? board.kids : [],
-      chores: Array.isArray(board.chores) ? board.chores : [],
+      chores: (Array.isArray(board.chores) ? board.chores : []).map((chore) => {
+        const fromList = Array.isArray(chore.kid_ids) ? chore.kid_ids.filter(Boolean) : [];
+        const kid_ids = fromList.length ? fromList : (chore.kid_id ? [chore.kid_id] : []);
+        return Object.assign({}, chore, { kid_ids });
+      }),
       checks: Array.isArray(board.checks) ? board.checks : [],
       reward: board.reward || ''
     };
@@ -556,7 +560,11 @@
   async function removeKid(id) {
     const board = await readChoreBoard();
     board.kids = board.kids.filter((kid) => kid.id !== id);
-    board.chores = board.chores.filter((chore) => chore.kid_id !== id);
+    board.chores = board.chores
+      .map((chore) => Object.assign({}, chore, {
+        kid_ids: (chore.kid_ids || []).filter((kidId) => kidId !== id)
+      }))
+      .filter((chore) => chore.kid_ids.length);
     board.checks = board.checks.filter((check) => check.kid_id !== id);
     await writeChoreBoard(board);
   }
@@ -573,10 +581,14 @@
     const cadence = ['daily', 'weekdays', 'weekends', 'once'].includes(input.cadence)
       ? input.cadence
       : 'daily';
+    const kidIds = (Array.isArray(input.kidIds) ? input.kidIds : [input.kidId])
+      .map((id) => String(id || '').trim())
+      .filter(Boolean);
+    if (!kidIds.length) throw new Error('Pick at least one kid');
     const board = await readChoreBoard();
     const chore = {
       id: newId(),
-      kid_id: input.kidId,
+      kid_ids: [...new Set(kidIds)],
       title,
       points,
       cadence,
@@ -591,6 +603,20 @@
     const board = await readChoreBoard();
     board.chores = board.chores.filter((chore) => chore.id !== id);
     board.checks = board.checks.filter((check) => check.chore_id !== id);
+    await writeChoreBoard(board);
+  }
+
+  async function dropKidFromChore(choreId, kidId) {
+    const board = await readChoreBoard();
+    board.chores = board.chores
+      .map((chore) => {
+        if (chore.id !== choreId) return chore;
+        return Object.assign({}, chore, {
+          kid_ids: (chore.kid_ids || []).filter((id) => id !== kidId)
+        });
+      })
+      .filter((chore) => (chore.kid_ids || []).length);
+    board.checks = board.checks.filter((check) => !(check.chore_id === choreId && check.kid_id === kidId));
     await writeChoreBoard(board);
   }
 
@@ -612,7 +638,7 @@
   async function markChoreDone(choreId, kidId, onDate) {
     const board = await readChoreBoard();
     const now = new Date().toISOString();
-    let check = board.checks.find((row) => row.chore_id === choreId && row.on_date === onDate);
+    let check = board.checks.find((row) => row.chore_id === choreId && row.kid_id === kidId && row.on_date === onDate);
     if (!check) {
       check = {
         id: newId(),
@@ -714,6 +740,7 @@
     listChores,
     addChore,
     removeChore,
+    dropKidFromChore,
     listChoreChecksForDate,
     listPendingChoreChecks,
     listApprovedChoreChecks,

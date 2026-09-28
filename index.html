@@ -10,7 +10,7 @@
   <link rel="manifest" href="manifest.webmanifest">
   <link rel="apple-touch-icon" href="icons/apple-touch-icon.png">
   <link rel="icon" href="icons/icon.svg" type="image/svg+xml">
-  <link rel="stylesheet" href="styles.css?v=app-shell-12">
+  <link rel="stylesheet" href="styles.css?v=app-shell-13">
 </head>
 <body>
   <div class="app">
@@ -82,7 +82,21 @@
         </div>
         <form class="chore-add-kid" id="addKidForm">
           <input type="text" id="kidNameInput" placeholder="Type any kid's name" autocomplete="off" enterkeyhint="done">
-          <button type="submit" class="btn btn-primary">Add</button>
+          <button type="submit" class="btn btn-primary">Add kid</button>
+        </form>
+        <form class="chore-add-form" id="addChoreForm" hidden>
+          <input type="text" name="title" placeholder="Add a chore — make bed, take out trash" autocomplete="off" required>
+          <div id="choreKidPicker" class="chore-kid-picker"></div>
+          <div class="chore-form-row">
+            <input type="number" name="points" min="1" max="5" value="1" aria-label="Points">
+            <select name="cadence" aria-label="How often">
+              <option value="daily">Every day</option>
+              <option value="weekdays">Weekdays</option>
+              <option value="weekends">Weekends</option>
+              <option value="once">Just once</option>
+            </select>
+            <button type="submit" class="btn btn-secondary">Add chore</button>
+          </div>
         </form>
         <div id="choreBoard"></div>
       </section>
@@ -374,8 +388,8 @@
   </dialog>
 
   <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
-  <script src="js/config.js?v=app-shell-12"></script>
-  <script src="js/db.js?v=app-shell-12"></script>
-  <script src="app.js?v=app-shell-12"></script>
+  <script src="js/config.js?v=app-shell-13"></script>
+  <script src="js/db.js?v=app-shell-13"></script>
+  <script src="app.js?v=app-shell-13"></script>
 </body>
 </html>

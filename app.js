@@ -2732,35 +2732,64 @@ async function loadChores() {
   renderChoreBoard();
 }
 
+function choreKidIds(chore) {
+  if (Array.isArray(chore.kid_ids) && chore.kid_ids.length) return chore.kid_ids;
+  return chore.kid_id ? [chore.kid_id] : [];
+}
+
+function checkForKid(chore, kidId, todayKey) {
+  const today = state.choreChecksToday.find((row) => row.chore_id === chore.id && row.kid_id === kidId && row.on_date === todayKey);
+  if (today) return today;
+  if (chore.cadence !== 'once') return null;
+  return state.approvedChecks.find((row) => row.chore_id === chore.id && row.kid_id === kidId)
+    || state.choreChecksToday.find((row) => row.chore_id === chore.id && row.kid_id === kidId)
+    || null;
+}
+
+function renderChoreKidPicker() {
+  const form = document.getElementById('addChoreForm');
+  const picker = document.getElementById('choreKidPicker');
+  if (!form || !picker) return;
+  form.hidden = !state.kids.length;
+  const previously = new Set(
+    [...picker.querySelectorAll('input[name="kid"]:checked')].map((el) => el.value)
+  );
+  picker.innerHTML = state.kids.map((kid) => `
+    <label class="chore-kid-chip">
+      <input type="checkbox" name="kid" value="${escapeHtml(kid.id)}" ${previously.has(kid.id) ? 'checked' : ''}>
+      ${escapeHtml(kid.display_name)}
+    </label>`).join('') + `
+    <label class="chore-kid-chip">
+      <input type="checkbox" data-all-kids>
+      All kids
+    </label>`;
+}
+
 function renderChoreBoard() {
   const board = document.getElementById('choreBoard');
   if (!board) return;
+  renderChoreKidPicker();
   if (state.choresError) {
     board.innerHTML = '';
     return;
   }
   if (!state.kids.length) {
-    board.innerHTML = '<div class="empty-state"><p>Add a kid by first name. They are only used on this chore board.</p></div>';
+    board.innerHTML = '<div class="empty-state"><p>Add a kid by first name. Then add a chore and tick who it is for.</p></div>';
     return;
   }
   const today = new Date();
   const todayKey = todayISODate();
   board.innerHTML = state.kids.map((kid) => {
-    const rows = state.chores.filter((chore) => chore.kid_id === kid.id && choreDueOn(chore, today));
+    const rows = state.chores.filter((chore) => choreKidIds(chore).includes(kid.id) && choreDueOn(chore, today));
     const visible = rows.filter((chore) => {
       if (chore.cadence !== 'once') return true;
-      const check = state.choreChecksToday.find((row) => row.chore_id === chore.id)
-        || state.approvedChecks.find((row) => row.chore_id === chore.id);
+      const check = checkForKid(chore, kid.id, todayKey);
       return !(check && check.status === 'approved' && check.on_date !== todayKey);
     });
     const list = visible.map((chore) => {
-      const check = state.choreChecksToday.find((row) => row.chore_id === chore.id && row.on_date === todayKey)
-        || (chore.cadence === 'once'
-          ? (state.approvedChecks.find((row) => row.chore_id === chore.id)
-            || state.choreChecksToday.find((row) => row.chore_id === chore.id))
-          : null);
-      const pending = check && check.status === 'pending';
-      const approved = check && check.status === 'approved';
+      const check = checkForKid(chore, kid.id, todayKey);
+      const pending = check && check.status === 'pending' && (chore.cadence === 'once' || check.on_date === todayKey);
+      const approved = check && check.status === 'approved' && (chore.cadence === 'once' || check.on_date === todayKey);
       const when = check ? formatDoneTime(check.completed_at) : '';
       let actions = `<button type="button" class="btn btn-primary btn-sm" data-chore-done="${escapeHtml(chore.id)}" data-kid="${escapeHtml(kid.id)}">Done</button>`;
       let meta = `${cadenceLabel(chore.cadence)} · ${chore.points} pt${chore.points === 1 ? '' : 's'}`;
@@ -2768,7 +2797,7 @@ function renderChoreBoard() {
         meta = `Finished ${when}. Waiting for a parent.`;
         actions = `<button type="button" class="btn btn-primary btn-sm" data-chore-approve="${escapeHtml(check.id)}">Approve</button>
           <button type="button" class="btn btn-ghost btn-sm" data-chore-undo="${escapeHtml(check.id)}">Undo</button>`;
-      } else if (approved && (chore.cadence === 'once' || check.on_date === todayKey)) {
+      } else if (approved) {
         meta = `Approved · finished ${when}`;
         actions = '';
       }
@@ -2779,7 +2808,7 @@ function renderChoreBoard() {
         </div>
         <div class="chore-row-actions">
           ${actions}
-          <button type="button" class="btn btn-ghost btn-sm" data-chore-remove="${escapeHtml(chore.id)}" aria-label="Remove chore">✕</button>
+          <button type="button" class="btn btn-ghost btn-sm" data-chore-drop="${escapeHtml(chore.id)}" data-kid="${escapeHtml(kid.id)}" aria-label="Remove this chore for this kid">✕</button>
         </div>
       </div>`;
     }).join('');
@@ -2794,17 +2823,6 @@ function renderChoreBoard() {
         </div>
       </div>
       ${list || '<p class="hint">No chores today.</p>'}
-      <form class="chore-add-line" data-kid-form="${escapeHtml(kid.id)}">
-        <input type="text" name="title" placeholder="Add a chore" autocomplete="off" required>
-        <input type="number" name="points" min="1" max="5" value="1" aria-label="Points">
-        <select name="cadence" aria-label="How often">
-          <option value="daily">Every day</option>
-          <option value="weekdays">Weekdays</option>
-          <option value="weekends">Weekends</option>
-          <option value="once">Just once</option>
-        </select>
-        <button type="submit" class="btn btn-secondary btn-sm">Add</button>
-      </form>
     </article>`;
   }).join('');
 }
@@ -2813,7 +2831,7 @@ async function onChoreBoardClick(event) {
   const done = event.target.closest('[data-chore-done]');
   const approve = event.target.closest('[data-chore-approve]');
   const undo = event.target.closest('[data-chore-undo]');
-  const removeChore = event.target.closest('[data-chore-remove]');
+  const dropChore = event.target.closest('[data-chore-drop]');
   const removeKid = event.target.closest('[data-kid-remove]');
   const spend = event.target.closest('[data-kid-spend]');
   try {
@@ -2832,16 +2850,18 @@ async function onChoreBoardClick(event) {
       await loadChores();
       return;
     }
-    if (removeChore) {
-      if (!confirm('Remove this chore?')) return;
-      await DB.removeChore(removeChore.dataset.choreRemove);
+    if (dropChore) {
+      const kid = state.kids.find((row) => row.id === dropChore.dataset.kid);
+      const name = kid ? kid.display_name : 'this kid';
+      if (!confirm(`Take this chore off ${name}? Other kids keep it.`)) return;
+      await DB.dropKidFromChore(dropChore.dataset.choreDrop, dropChore.dataset.kid);
       await loadChores();
       return;
     }
     if (removeKid) {
       const kid = state.kids.find((row) => row.id === removeKid.dataset.kidRemove);
       const name = kid ? kid.display_name : 'this kid';
-      if (!confirm(`Remove ${name}? Their chores go too. Recipes and the meal plan stay.`)) return;
+      if (!confirm(`Remove ${name}? Shared chores stay for the other kids.`)) return;
       await DB.removeKid(removeKid.dataset.kidRemove);
       await loadChores();
       return;
@@ -2894,21 +2914,35 @@ async function init() {
     }
   });
   document.getElementById('choreBoard').addEventListener('click', onChoreBoardClick);
-  document.getElementById('choreBoard').addEventListener('submit', async (event) => {
-    const form = event.target.closest('[data-kid-form]');
-    if (!form) return;
+  document.getElementById('choreKidPicker').addEventListener('change', (event) => {
+    const boxes = [...document.querySelectorAll('#choreKidPicker input[name="kid"]')];
+    const all = document.querySelector('#choreKidPicker [data-all-kids]');
+    if (event.target.closest('[data-all-kids]')) {
+      boxes.forEach((box) => { box.checked = event.target.checked; });
+      return;
+    }
+    if (all) all.checked = boxes.length > 0 && boxes.every((box) => box.checked);
+  });
+  document.getElementById('addChoreForm').addEventListener('submit', async (event) => {
     event.preventDefault();
+    const form = event.target;
     const title = form.elements.title.value.trim();
+    const kidIds = [...form.querySelectorAll('input[name="kid"]:checked')].map((box) => box.value);
     if (!title) return;
+    if (!kidIds.length) {
+      showToast('Pick at least one kid.');
+      return;
+    }
     try {
       await DB.addChore({
-        kidId: form.dataset.kidForm,
+        kidIds,
         title,
         points: form.elements.points.value,
         cadence: form.elements.cadence.value
       });
-      form.reset();
+      form.elements.title.value = '';
       form.elements.points.value = '1';
+      form.querySelectorAll('input[type="checkbox"]').forEach((box) => { box.checked = false; });
       await loadChores();
     } catch (err) {
       console.error(err);

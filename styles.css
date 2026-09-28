@@ -494,8 +494,8 @@ body.is-meal-dragging .app-main {
 .grocery-add input,
 .chore-reward input,
 .chore-add-kid input,
-.chore-add-line input,
-.chore-add-line select {
+.chore-add-form input,
+.chore-add-form select {
   width: 100%;
   padding: 12px 13px;
   border: 1px solid var(--border);
@@ -932,14 +932,33 @@ textarea { min-height: unset; }
 .chore-row h3 { font-size: 1rem; font-weight: 650; }
 .chore-meta { display: block; font-size: 0.78rem; color: var(--text-muted); margin-top: 2px; }
 .chore-row-actions { display: flex; gap: 6px; flex-shrink: 0; }
-.chore-add-line {
+.chore-add-form {
   display: flex;
-  gap: 6px;
-  margin: 8px 0 4px;
+  flex-direction: column;
+  gap: 8px;
+  margin-bottom: 16px;
+  padding: 12px;
+  background: var(--card);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
 }
-.chore-add-line input[type="text"] { flex: 1; min-width: 0; }
-.chore-add-line input[type="number"] { width: 52px; }
-.chore-add-line select { max-width: 7.5rem; }
+.chore-add-form[hidden] { display: none; }
+.chore-form-row { display: flex; gap: 6px; align-items: center; }
+.chore-form-row input[type="number"] { width: 64px; flex: 0 0 auto; }
+.chore-form-row select { flex: 1; min-width: 0; }
+.chore-kid-picker { display: flex; flex-wrap: wrap; gap: 8px; }
+.chore-kid-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-height: 44px;
+  padding: 6px 12px;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  background: #fff;
+  font-weight: 650;
+}
+.chore-kid-chip input { width: 18px; height: 18px; }
 
 .toast {
   position: fixed;
