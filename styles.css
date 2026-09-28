@@ -959,9 +959,64 @@ textarea { min-height: unset; }
   font-weight: 650;
 }
 .chore-kid-chip input { width: 18px; height: 18px; }
-.point-pool {
-  background: var(--primary-dark);
+.chore-switch {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 6px;
+  margin-bottom: 14px;
+  padding: 4px;
+  background: #fff;
+  border: 1px solid var(--border);
+  border-radius: 16px;
+}
+.chore-switch-btn {
+  min-height: 44px;
+  border: none;
+  border-radius: 12px;
+  background: transparent;
+  color: var(--text-muted);
+  font: inherit;
+  font-weight: 750;
+  cursor: pointer;
+}
+.chore-switch-btn.active {
+  background: var(--primary);
   color: #fff;
+}
+.chore-sheet { }
+.reward-bank {
+  background: #2c2416;
+  color: #f8f1e3;
+  border-radius: 18px;
+  padding: 16px 14px 8px;
+}
+.reward-bank[hidden] { display: none; }
+.reward-bank-kicker {
+  margin: 0 0 10px;
+  font-size: 0.78rem;
+  font-weight: 750;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: #e8c56b;
+}
+.reward-bank .chore-add-form,
+.reward-bank .reward-card {
+  background: #3a3124;
+  border-color: #6b5a3e;
+  color: #f8f1e3;
+}
+.reward-bank .hint { color: #d9cbb3; }
+.reward-bank .kid-points { color: #e8c56b; }
+.reward-bank input,
+.reward-bank select,
+.reward-bank .stepper {
+  background: #fff8ee;
+  color: #1c1c1c;
+  border-color: #e4d3b0;
+}
+.point-pool {
+  background: #e8c56b;
+  color: #2c2416;
   border-radius: var(--radius);
   padding: 14px 16px;
   margin-bottom: 12px;

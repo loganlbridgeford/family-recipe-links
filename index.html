@@ -10,7 +10,7 @@
   <link rel="manifest" href="manifest.webmanifest">
   <link rel="apple-touch-icon" href="icons/apple-touch-icon.png">
   <link rel="icon" href="icons/icon.svg" type="image/svg+xml">
-  <link rel="stylesheet" href="styles.css?v=app-shell-14">
+  <link rel="stylesheet" href="styles.css?v=app-shell-15">
 </head>
 <body>
   <div class="app">
@@ -76,44 +76,53 @@
 
       <section class="panel" id="panel-chores" role="tabpanel" hidden>
         <p class="hint" id="choresError" hidden></p>
-        <div class="point-pool" id="pointPool" hidden></div>
-        <form class="chore-add-kid" id="addKidForm">
-          <input type="text" id="kidNameInput" placeholder="Type any kid's name" autocomplete="off" enterkeyhint="done">
-          <button type="submit" class="btn btn-primary">Add kid</button>
-        </form>
-        <form class="chore-add-form" id="addChoreForm" hidden>
-          <input type="text" name="title" placeholder="Add a chore — make bed, take out trash" autocomplete="off" required>
-          <div id="choreKidPicker" class="chore-kid-picker"></div>
-          <div class="chore-form-row">
-            <div class="stepper" data-min="1" data-max="20" data-step-by="1">
-              <button type="button" data-step="-1" aria-label="Fewer points">−</button>
-              <span data-step-label>1</span>
-              <input type="hidden" name="points" value="1">
-              <button type="button" data-step="1" aria-label="More points">+</button>
+        <div class="chore-switch" role="tablist" aria-label="Chores or reward bank">
+          <button type="button" class="chore-switch-btn active" data-chore-view="chores" aria-selected="true">Chores</button>
+          <button type="button" class="chore-switch-btn" data-chore-view="bank" aria-selected="false">Reward bank</button>
+        </div>
+        <section id="choreWork" class="chore-sheet">
+          <form class="chore-add-kid" id="addKidForm">
+            <input type="text" id="kidNameInput" placeholder="Type any kid's name" autocomplete="off" enterkeyhint="done">
+            <button type="submit" class="btn btn-primary">Add kid</button>
+          </form>
+          <form class="chore-add-form" id="addChoreForm" hidden>
+            <input type="text" name="title" placeholder="Add a chore — make bed, take out trash" autocomplete="off" required>
+            <div id="choreKidPicker" class="chore-kid-picker"></div>
+            <div class="chore-form-row">
+              <div class="stepper" data-min="1" data-max="20" data-step-by="1">
+                <button type="button" data-step="-1" aria-label="Fewer points">−</button>
+                <span data-step-label>1</span>
+                <input type="hidden" name="points" value="1">
+                <button type="button" data-step="1" aria-label="More points">+</button>
+              </div>
+              <select name="cadence" aria-label="How often">
+                <option value="daily">Every day</option>
+                <option value="weekdays">Weekdays</option>
+                <option value="weekends">Weekends</option>
+                <option value="once">Just once</option>
+              </select>
+              <button type="submit" class="btn btn-secondary">Add chore</button>
             </div>
-            <select name="cadence" aria-label="How often">
-              <option value="daily">Every day</option>
-              <option value="weekdays">Weekdays</option>
-              <option value="weekends">Weekends</option>
-              <option value="once">Just once</option>
-            </select>
-            <button type="submit" class="btn btn-secondary">Add chore</button>
-          </div>
-        </form>
-        <form class="chore-add-form" id="addRewardForm" hidden>
-          <input type="text" name="title" placeholder="Add a reward — movie night, ice cream" autocomplete="off" required>
-          <div class="chore-form-row">
-            <div class="stepper" data-min="5" data-max="200" data-step-by="5">
-              <button type="button" data-step="-1" aria-label="Fewer points">−</button>
-              <span data-step-label>10</span>
-              <input type="hidden" name="cost" value="10">
-              <button type="button" data-step="1" aria-label="More points">+</button>
+          </form>
+          <div id="choreBoard"></div>
+        </section>
+        <section id="rewardBank" class="reward-bank" hidden>
+          <p class="reward-bank-kicker">Reward bank</p>
+          <div class="point-pool" id="pointPool" hidden></div>
+          <form class="chore-add-form" id="addRewardForm" hidden>
+            <input type="text" name="title" placeholder="Add a reward — movie night, ice cream" autocomplete="off" required>
+            <div class="chore-form-row">
+              <div class="stepper" data-min="5" data-max="200" data-step-by="5">
+                <button type="button" data-step="-1" aria-label="Fewer points">−</button>
+                <span data-step-label>10</span>
+                <input type="hidden" name="cost" value="10">
+                <button type="button" data-step="1" aria-label="More points">+</button>
+              </div>
+              <button type="submit" class="btn btn-secondary">Add reward</button>
             </div>
-            <button type="submit" class="btn btn-secondary">Add reward</button>
-          </div>
-        </form>
-        <div id="rewardList"></div>
-        <div id="choreBoard"></div>
+          </form>
+          <div id="rewardList"></div>
+        </section>
       </section>
     </main>
 
@@ -403,8 +412,8 @@
   </dialog>
 
   <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
-  <script src="js/config.js?v=app-shell-14"></script>
-  <script src="js/db.js?v=app-shell-14"></script>
-  <script src="app.js?v=app-shell-14"></script>
+  <script src="js/config.js?v=app-shell-15"></script>
+  <script src="js/db.js?v=app-shell-15"></script>
+  <script src="app.js?v=app-shell-15"></script>
 </body>
 </html>

@@ -31,6 +31,7 @@ const state = {
   rewards: [],
   redemptions: [],
   redeemRewardId: null,
+  choreView: 'chores',
   choresError: ''
 };
 
@@ -2957,6 +2958,18 @@ async function init() {
   });
   document.getElementById('prevWeek').addEventListener('click', () => changeWeek(-7));
   document.getElementById('nextWeek').addEventListener('click', () => changeWeek(7));
+  document.querySelectorAll('[data-chore-view]').forEach((button) => {
+    button.addEventListener('click', () => {
+      state.choreView = button.dataset.choreView;
+      document.querySelectorAll('[data-chore-view]').forEach((tab) => {
+        const on = tab === button;
+        tab.classList.toggle('active', on);
+        tab.setAttribute('aria-selected', on ? 'true' : 'false');
+      });
+      document.getElementById('choreWork').hidden = state.choreView !== 'chores';
+      document.getElementById('rewardBank').hidden = state.choreView !== 'bank';
+    });
+  });
   document.getElementById('addKidForm').addEventListener('submit', async (event) => {
     event.preventDefault();
     const input = document.getElementById('kidNameInput');
