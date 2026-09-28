@@ -28,6 +28,9 @@ const state = {
   chores: [],
   choreChecksToday: [],
   approvedChecks: [],
+  rewards: [],
+  redemptions: [],
+  redeemRewardId: null,
   choresError: ''
 };
 
@@ -2694,7 +2697,7 @@ function formatDoneTime(iso) {
   });
 }
 
-function kidPoints(kid) {
+function kidEarnedPoints(kid) {
   const reset = kid.points_reset_at ? new Date(kid.points_reset_at).getTime() : 0;
   return state.approvedChecks.reduce((sum, check) => {
     if (check.kid_id !== kid.id) return sum;
@@ -2703,6 +2706,24 @@ function kidPoints(kid) {
     const chore = state.chores.find((row) => row.id === check.chore_id);
     return sum + (chore ? Number(chore.points) || 1 : 1);
   }, 0);
+}
+
+function kidSpentPoints(kid) {
+  const reset = kid.points_reset_at ? new Date(kid.points_reset_at).getTime() : 0;
+  return state.redemptions.reduce((sum, redemption) => {
+    const when = new Date(redemption.at || 0).getTime();
+    if (when <= reset) return sum;
+    const amounts = redemption.amounts || {};
+    return sum + (Number(amounts[kid.id]) || 0);
+  }, 0);
+}
+
+function kidPoints(kid) {
+  return Math.max(0, kidEarnedPoints(kid) - kidSpentPoints(kid));
+}
+
+function familyPointTotal() {
+  return state.kids.reduce((sum, kid) => sum + kidPoints(kid), 0);
 }
 
 async function loadChores() {
@@ -2716,11 +2737,9 @@ async function loadChores() {
     todayChecks.concat(pendingChecks).forEach((row) => byId.set(row.id, row));
     state.choreChecksToday = [...byId.values()];
     state.approvedChecks = await DB.listApprovedChoreChecks();
+    state.rewards = await DB.listRewards();
+    state.redemptions = await DB.listRedemptions();
     state.choresError = '';
-    const reward = document.getElementById('choreReward');
-    if (reward && document.activeElement !== reward) {
-      reward.value = (APP_CONFIG.HOUSEHOLD && APP_CONFIG.HOUSEHOLD.chore_reward) || '';
-    }
   } catch (err) {
     console.error(err);
     state.choresError = 'Could not load chores.';
@@ -2751,6 +2770,8 @@ function renderChoreKidPicker() {
   const picker = document.getElementById('choreKidPicker');
   if (!form || !picker) return;
   form.hidden = !state.kids.length;
+  const rewardForm = document.getElementById('addRewardForm');
+  if (rewardForm) rewardForm.hidden = !state.kids.length;
   const previously = new Set(
     [...picker.querySelectorAll('input[name="kid"]:checked')].map((el) => el.value)
   );
@@ -2765,10 +2786,56 @@ function renderChoreKidPicker() {
     </label>`;
 }
 
+function renderPointPool() {
+  const pool = document.getElementById('pointPool');
+  if (!pool) return;
+  if (!state.kids.length || state.choresError) {
+    pool.hidden = true;
+    return;
+  }
+  const total = familyPointTotal();
+  const parts = state.kids.map((kid) => `${kid.display_name} ${kidPoints(kid)}`).join(' · ');
+  pool.hidden = false;
+  pool.innerHTML = `<strong>${total} points together</strong><span>${escapeHtml(parts)}</span>`;
+}
+
+function renderRewardList() {
+  const list = document.getElementById('rewardList');
+  if (!list) return;
+  if (!state.kids.length || state.choresError) {
+    list.innerHTML = '';
+    return;
+  }
+  if (!state.rewards.length) {
+    list.innerHTML = '<p class="hint">Add a reward, then choose which kids pay for it.</p>';
+    return;
+  }
+  list.innerHTML = state.rewards.map((reward) => {
+    const open = state.redeemRewardId === reward.id;
+    const payers = open ? `<div class="reward-pay">
+      ${state.kids.map((kid) => `<label class="chore-kid-chip"><input type="checkbox" name="pay" value="${escapeHtml(kid.id)}"> ${escapeHtml(kid.display_name)} (${kidPoints(kid)})</label>`).join('')}
+      <button type="button" class="btn btn-primary btn-sm" data-reward-take="${escapeHtml(reward.id)}">Take ${reward.cost} points</button>
+    </div>` : '';
+    return `<article class="reward-card">
+      <div class="kid-card-head">
+        <h3>${escapeHtml(reward.title)}</h3>
+        <div class="kid-actions">
+          <span class="kid-points">${reward.cost} pts</span>
+          <button type="button" class="btn btn-secondary btn-sm" data-reward-use="${escapeHtml(reward.id)}">${open ? 'Close' : 'Use'}</button>
+          <button type="button" class="btn btn-ghost btn-sm" data-reward-remove="${escapeHtml(reward.id)}" aria-label="Remove reward">✕</button>
+        </div>
+      </div>
+      ${payers}
+    </article>`;
+  }).join('');
+}
+
 function renderChoreBoard() {
   const board = document.getElementById('choreBoard');
   if (!board) return;
   renderChoreKidPicker();
+  renderPointPool();
+  renderRewardList();
   if (state.choresError) {
     board.innerHTML = '';
     return;
@@ -2818,7 +2885,6 @@ function renderChoreBoard() {
         <h2>${escapeHtml(kid.display_name)}</h2>
         <div class="kid-actions">
           <span class="kid-points">${points} pt${points === 1 ? '' : 's'}</span>
-          <button type="button" class="btn btn-ghost btn-sm" data-kid-spend="${escapeHtml(kid.id)}" ${points ? '' : 'hidden'}>Spent</button>
           <button type="button" class="btn btn-ghost btn-sm" data-kid-remove="${escapeHtml(kid.id)}">Remove</button>
         </div>
       </div>
@@ -2833,7 +2899,6 @@ async function onChoreBoardClick(event) {
   const undo = event.target.closest('[data-chore-undo]');
   const dropChore = event.target.closest('[data-chore-drop]');
   const removeKid = event.target.closest('[data-kid-remove]');
-  const spend = event.target.closest('[data-kid-spend]');
   try {
     if (done) {
       await DB.markChoreDone(done.dataset.choreDone, done.dataset.kid, todayISODate());
@@ -2865,13 +2930,6 @@ async function onChoreBoardClick(event) {
       await DB.removeKid(removeKid.dataset.kidRemove);
       await loadChores();
       return;
-    }
-    if (spend) {
-      const kid = state.kids.find((row) => row.id === spend.dataset.kidSpend);
-      const name = kid ? kid.display_name : 'This kid';
-      if (!confirm(`Mark ${name}'s points as spent? The bank goes back to 0. Chores stay.`)) return;
-      await DB.resetKidPoints(spend.dataset.kidSpend);
-      await loadChores();
     }
   } catch (err) {
     console.error(err);
@@ -2941,7 +2999,10 @@ async function init() {
         cadence: form.elements.cadence.value
       });
       form.elements.title.value = '';
-      form.elements.points.value = '1';
+      const pointsInput = form.querySelector('input[name="points"]');
+      const pointsLabel = form.querySelector('[data-step-label]');
+      if (pointsInput) pointsInput.value = '1';
+      if (pointsLabel) pointsLabel.textContent = '1';
       form.querySelectorAll('input[type="checkbox"]').forEach((box) => { box.checked = false; });
       await loadChores();
     } catch (err) {
@@ -2949,14 +3010,68 @@ async function init() {
       showToast('Could not add that chore.');
     }
   });
-  const rewardInput = document.getElementById('choreReward');
-  rewardInput.addEventListener('change', async () => {
+  document.addEventListener('click', (event) => {
+    const stepBtn = event.target.closest('.stepper [data-step]');
+    if (!stepBtn) return;
+    event.preventDefault();
+    const stepper = stepBtn.closest('.stepper');
+    const input = stepper.querySelector('input[type="hidden"]');
+    const label = stepper.querySelector('[data-step-label]');
+    const min = Number(stepper.dataset.min);
+    const max = Number(stepper.dataset.max);
+    const by = Number(stepper.dataset.stepBy) || 1;
+    const next = Math.min(max, Math.max(min, Number(input.value) + Number(stepBtn.dataset.step) * by));
+    input.value = String(next);
+    label.textContent = String(next);
+  });
+  document.getElementById('addRewardForm').addEventListener('submit', async (event) => {
+    event.preventDefault();
+    const form = event.target;
+    const title = form.elements.title.value.trim();
+    if (!title) return;
     try {
-      await DB.saveChoreReward(rewardInput.value);
-      if (APP_CONFIG.HOUSEHOLD) APP_CONFIG.HOUSEHOLD.chore_reward = rewardInput.value.trim();
+      await DB.addReward(title, form.elements.cost.value);
+      form.elements.title.value = '';
+      form.elements.cost.value = '10';
+      form.querySelector('[data-step-label]').textContent = '10';
+      await loadChores();
     } catch (err) {
       console.error(err);
-      showToast('Could not save the reward.');
+      showToast('Could not add that reward.');
+    }
+  });
+  document.getElementById('rewardList').addEventListener('click', async (event) => {
+    const use = event.target.closest('[data-reward-use]');
+    const take = event.target.closest('[data-reward-take]');
+    const remove = event.target.closest('[data-reward-remove]');
+    try {
+      if (use) {
+        state.redeemRewardId = state.redeemRewardId === use.dataset.rewardUse ? null : use.dataset.rewardUse;
+        renderRewardList();
+        return;
+      }
+      if (remove) {
+        if (!confirm('Remove this reward? Points already spent stay spent.')) return;
+        await DB.removeReward(remove.dataset.rewardRemove);
+        state.redeemRewardId = null;
+        await loadChores();
+        return;
+      }
+      if (take) {
+        const card = take.closest('.reward-card');
+        const kidIds = [...card.querySelectorAll('input[name="pay"]:checked')].map((box) => box.value);
+        if (!kidIds.length) {
+          showToast('Pick one kid, or several to pool points.');
+          return;
+        }
+        await DB.redeemReward(take.dataset.rewardTake, kidIds);
+        state.redeemRewardId = null;
+        await loadChores();
+        showToast('Reward used. Points came off the kids you picked.');
+      }
+    } catch (err) {
+      console.error(err);
+      showToast(err && err.code === 'not_enough' ? 'Those kids do not have enough points together.' : 'Could not use that reward.');
     }
   });
   document.getElementById('todayBtn').addEventListener('click', async () => {

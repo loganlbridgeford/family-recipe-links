@@ -501,7 +501,7 @@
   const CHORE_WEEK = '1970-01-05';
 
   function emptyChoreBoard() {
-    return { kids: [], chores: [], checks: [], reward: '' };
+    return { kids: [], chores: [], checks: [], rewards: [], redemptions: [], reward: '' };
   }
 
   async function readChoreBoard() {
@@ -516,6 +516,8 @@
         return Object.assign({}, chore, { kid_ids });
       }),
       checks: Array.isArray(board.checks) ? board.checks : [],
+      rewards: Array.isArray(board.rewards) ? board.rewards : [],
+      redemptions: Array.isArray(board.redemptions) ? board.redemptions : [],
       reward: board.reward || ''
     };
     if (C.HOUSEHOLD) C.HOUSEHOLD.chore_reward = next.reward;
@@ -683,6 +685,110 @@
     await writeChoreBoard(board);
   }
 
+  function kidEarned(board, kid) {
+    const reset = kid.points_reset_at ? new Date(kid.points_reset_at).getTime() : 0;
+    return board.checks.reduce((sum, check) => {
+      if (check.kid_id !== kid.id || check.status !== 'approved') return sum;
+      const when = new Date(check.approved_at || check.completed_at || 0).getTime();
+      if (when <= reset) return sum;
+      const chore = board.chores.find((row) => row.id === check.chore_id);
+      return sum + (chore ? Number(chore.points) || 1 : 1);
+    }, 0);
+  }
+
+  function kidSpent(board, kid) {
+    const reset = kid.points_reset_at ? new Date(kid.points_reset_at).getTime() : 0;
+    return (board.redemptions || []).reduce((sum, redemption) => {
+      const when = new Date(redemption.at || 0).getTime();
+      if (when <= reset) return sum;
+      const amounts = redemption.amounts || {};
+      return sum + (Number(amounts[kid.id]) || 0);
+    }, 0);
+  }
+
+  function splitPointCost(cost, kids) {
+    const total = kids.reduce((sum, kid) => sum + kid.balance, 0);
+    if (!kids.length || total < cost) return null;
+    const amounts = {};
+    let left = cost;
+    kids.forEach((kid) => {
+      const share = Math.floor((cost * kid.balance) / total);
+      amounts[kid.id] = share;
+      left -= share;
+    });
+    const roomiest = kids.slice().sort((a, b) => b.balance - a.balance);
+    roomiest.forEach((kid) => {
+      if (left <= 0) return;
+      const room = kid.balance - amounts[kid.id];
+      const take = Math.min(room, left);
+      amounts[kid.id] += take;
+      left -= take;
+    });
+    if (left > 0) return null;
+    return amounts;
+  }
+
+  async function listRewards() {
+    const board = await readChoreBoard();
+    return board.rewards.slice();
+  }
+
+  async function listRedemptions() {
+    const board = await readChoreBoard();
+    return board.redemptions.slice();
+  }
+
+  async function addReward(title, cost) {
+    const name = String(title || '').trim();
+    if (!name) throw new Error('Reward required');
+    const points = Math.min(200, Math.max(5, Math.round(Number(cost) / 5) * 5 || 5));
+    const board = await readChoreBoard();
+    const reward = {
+      id: newId(),
+      title: name,
+      cost: points,
+      created_at: new Date().toISOString()
+    };
+    board.rewards.push(reward);
+    await writeChoreBoard(board);
+    return reward;
+  }
+
+  async function removeReward(id) {
+    const board = await readChoreBoard();
+    board.rewards = board.rewards.filter((reward) => reward.id !== id);
+    await writeChoreBoard(board);
+  }
+
+  async function redeemReward(rewardId, kidIds) {
+    const ids = [...new Set((kidIds || []).filter(Boolean))];
+    if (!ids.length) throw new Error('Pick a kid');
+    const board = await readChoreBoard();
+    const reward = board.rewards.find((row) => row.id === rewardId);
+    if (!reward) throw new Error('Reward not found');
+    const payers = ids.map((id) => {
+      const kid = board.kids.find((row) => row.id === id);
+      if (!kid) return null;
+      return { id, balance: Math.max(0, kidEarned(board, kid) - kidSpent(board, kid)) };
+    }).filter(Boolean);
+    const amounts = splitPointCost(Number(reward.cost) || 0, payers);
+    if (!amounts) {
+      const err = new Error('not enough points');
+      err.code = 'not_enough';
+      throw err;
+    }
+    board.redemptions.push({
+      id: newId(),
+      reward_id: reward.id,
+      title: reward.title,
+      cost: reward.cost,
+      amounts,
+      at: new Date().toISOString()
+    });
+    await writeChoreBoard(board);
+    return amounts;
+  }
+
   async function saveChoreReward(text) {
     const board = await readChoreBoard();
     board.reward = String(text || '').trim();
@@ -748,6 +854,11 @@
     approveChoreCheck,
     clearChoreCheck,
     resetKidPoints,
-    saveChoreReward
+    saveChoreReward,
+    listRewards,
+    listRedemptions,
+    addReward,
+    removeReward,
+    redeemReward
   };
 })(window);

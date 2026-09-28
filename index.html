@@ -10,7 +10,7 @@
   <link rel="manifest" href="manifest.webmanifest">
   <link rel="apple-touch-icon" href="icons/apple-touch-icon.png">
   <link rel="icon" href="icons/icon.svg" type="image/svg+xml">
-  <link rel="stylesheet" href="styles.css?v=app-shell-13">
+  <link rel="stylesheet" href="styles.css?v=app-shell-14">
 </head>
 <body>
   <div class="app">
@@ -76,10 +76,7 @@
 
       <section class="panel" id="panel-chores" role="tabpanel" hidden>
         <p class="hint" id="choresError" hidden></p>
-        <div class="chore-reward">
-          <label for="choreReward">Reward</label>
-          <input type="text" id="choreReward" placeholder="Movie night at 50 points" autocomplete="off">
-        </div>
+        <div class="point-pool" id="pointPool" hidden></div>
         <form class="chore-add-kid" id="addKidForm">
           <input type="text" id="kidNameInput" placeholder="Type any kid's name" autocomplete="off" enterkeyhint="done">
           <button type="submit" class="btn btn-primary">Add kid</button>
@@ -88,7 +85,12 @@
           <input type="text" name="title" placeholder="Add a chore — make bed, take out trash" autocomplete="off" required>
           <div id="choreKidPicker" class="chore-kid-picker"></div>
           <div class="chore-form-row">
-            <input type="number" name="points" min="1" max="5" value="1" aria-label="Points">
+            <div class="stepper" data-min="1" data-max="20" data-step-by="1">
+              <button type="button" data-step="-1" aria-label="Fewer points">−</button>
+              <span data-step-label>1</span>
+              <input type="hidden" name="points" value="1">
+              <button type="button" data-step="1" aria-label="More points">+</button>
+            </div>
             <select name="cadence" aria-label="How often">
               <option value="daily">Every day</option>
               <option value="weekdays">Weekdays</option>
@@ -98,6 +100,19 @@
             <button type="submit" class="btn btn-secondary">Add chore</button>
           </div>
         </form>
+        <form class="chore-add-form" id="addRewardForm" hidden>
+          <input type="text" name="title" placeholder="Add a reward — movie night, ice cream" autocomplete="off" required>
+          <div class="chore-form-row">
+            <div class="stepper" data-min="5" data-max="200" data-step-by="5">
+              <button type="button" data-step="-1" aria-label="Fewer points">−</button>
+              <span data-step-label>10</span>
+              <input type="hidden" name="cost" value="10">
+              <button type="button" data-step="1" aria-label="More points">+</button>
+            </div>
+            <button type="submit" class="btn btn-secondary">Add reward</button>
+          </div>
+        </form>
+        <div id="rewardList"></div>
         <div id="choreBoard"></div>
       </section>
     </main>
@@ -388,8 +403,8 @@
   </dialog>
 
   <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
-  <script src="js/config.js?v=app-shell-13"></script>
-  <script src="js/db.js?v=app-shell-13"></script>
-  <script src="app.js?v=app-shell-13"></script>
+  <script src="js/config.js?v=app-shell-14"></script>
+  <script src="js/db.js?v=app-shell-14"></script>
+  <script src="app.js?v=app-shell-14"></script>
 </body>
 </html>

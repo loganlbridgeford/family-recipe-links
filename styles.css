@@ -959,6 +959,49 @@ textarea { min-height: unset; }
   font-weight: 650;
 }
 .chore-kid-chip input { width: 18px; height: 18px; }
+.point-pool {
+  background: var(--primary-dark);
+  color: #fff;
+  border-radius: var(--radius);
+  padding: 14px 16px;
+  margin-bottom: 12px;
+}
+.point-pool strong { font-size: 1.35rem; display: block; }
+.point-pool span { opacity: 0.85; font-size: 0.85rem; }
+.stepper {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  background: #fff;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  min-height: var(--tap);
+  padding: 2px;
+}
+.stepper button {
+  width: 44px;
+  height: 40px;
+  border: none;
+  border-radius: 10px;
+  background: #f4f1ea;
+  font-size: 1.3rem;
+  font-family: inherit;
+  cursor: pointer;
+}
+.stepper [data-step-label] {
+  min-width: 2.2rem;
+  text-align: center;
+  font-weight: 750;
+}
+.reward-card {
+  background: var(--card);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 12px 14px;
+  margin-bottom: 10px;
+}
+.reward-card h3 { font-size: 1rem; }
+.reward-pay { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 8px; }
 
 .toast {
   position: fixed;
