@@ -622,6 +622,14 @@
     await writeChoreBoard(board);
   }
 
+  async function resetChoreForKid(choreId, kidId) {
+    const board = await readChoreBoard();
+    const chore = board.chores.find((row) => row.id === choreId);
+    if (!chore) throw new Error('Chore not found');
+    chore.resets = Object.assign({}, chore.resets || {}, { [kidId]: new Date().toISOString() });
+    await writeChoreBoard(board);
+  }
+
   async function listChoreChecksForDate(onDate) {
     const board = await readChoreBoard();
     return board.checks.filter((check) => check.on_date === onDate);
@@ -640,7 +648,7 @@
   async function markChoreDone(choreId, kidId, onDate) {
     const board = await readChoreBoard();
     const now = new Date().toISOString();
-    let check = board.checks.find((row) => row.chore_id === choreId && row.kid_id === kidId && row.on_date === onDate);
+    let check = board.checks.find((row) => row.chore_id === choreId && row.kid_id === kidId && row.on_date === onDate && row.status !== 'approved');
     if (!check) {
       check = {
         id: newId(),
@@ -847,6 +855,7 @@
     addChore,
     removeChore,
     dropKidFromChore,
+    resetChoreForKid,
     listChoreChecksForDate,
     listPendingChoreChecks,
     listApprovedChoreChecks,

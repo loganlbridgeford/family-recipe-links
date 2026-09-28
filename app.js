@@ -2682,7 +2682,7 @@ function choreDueOn(chore, date) {
 function cadenceLabel(cadence) {
   if (cadence === 'weekdays') return 'Weekdays';
   if (cadence === 'weekends') return 'Weekends';
-  if (cadence === 'once') return 'Once';
+  if (cadence === 'once') return 'As needed';
   return 'Every day';
 }
 
@@ -2757,13 +2757,32 @@ function choreKidIds(chore) {
   return chore.kid_id ? [chore.kid_id] : [];
 }
 
+function choreResetTime(chore, kidId) {
+  const stamp = chore.resets && chore.resets[kidId];
+  return stamp ? new Date(stamp).getTime() : 0;
+}
+
+function checkIsCurrent(check, chore, kidId) {
+  const when = new Date(check.approved_at || check.completed_at || 0).getTime();
+  return when > choreResetTime(chore, kidId);
+}
+
 function checkForKid(chore, kidId, todayKey) {
-  const today = state.choreChecksToday.find((row) => row.chore_id === chore.id && row.kid_id === kidId && row.on_date === todayKey);
-  if (today) return today;
-  if (chore.cadence !== 'once') return null;
-  return state.approvedChecks.find((row) => row.chore_id === chore.id && row.kid_id === kidId)
-    || state.choreChecksToday.find((row) => row.chore_id === chore.id && row.kid_id === kidId)
-    || null;
+  const matches = [];
+  const seen = new Set();
+  state.choreChecksToday.concat(state.approvedChecks).forEach((row) => {
+    if (seen.has(row.id)) return;
+    if (row.chore_id !== chore.id || row.kid_id !== kidId) return;
+    if (!checkIsCurrent(row, chore, kidId)) return;
+    seen.add(row.id);
+    matches.push(row);
+  });
+  const pending = matches.find((row) => row.status === 'pending');
+  if (pending && (chore.cadence === 'once' || pending.on_date === todayKey)) return pending;
+  if (chore.cadence !== 'once') {
+    return matches.find((row) => row.on_date === todayKey) || null;
+  }
+  return matches.find((row) => row.status === 'approved') || null;
 }
 
 function renderChoreKidPicker() {
@@ -2849,12 +2868,7 @@ function renderChoreBoard() {
   const todayKey = todayISODate();
   board.innerHTML = state.kids.map((kid) => {
     const rows = state.chores.filter((chore) => choreKidIds(chore).includes(kid.id) && choreDueOn(chore, today));
-    const visible = rows.filter((chore) => {
-      if (chore.cadence !== 'once') return true;
-      const check = checkForKid(chore, kid.id, todayKey);
-      return !(check && check.status === 'approved' && check.on_date !== todayKey);
-    });
-    const list = visible.map((chore) => {
+    const list = rows.map((chore) => {
       const check = checkForKid(chore, kid.id, todayKey);
       const pending = check && check.status === 'pending' && (chore.cadence === 'once' || check.on_date === todayKey);
       const approved = check && check.status === 'approved' && (chore.cadence === 'once' || check.on_date === todayKey);
@@ -2867,7 +2881,9 @@ function renderChoreBoard() {
           <button type="button" class="btn btn-ghost btn-sm" data-chore-undo="${escapeHtml(check.id)}">Undo</button>`;
       } else if (approved) {
         meta = `Approved · finished ${when}`;
-        actions = '';
+        actions = chore.cadence === 'once'
+          ? `<button type="button" class="btn btn-secondary btn-sm" data-chore-reset="${escapeHtml(chore.id)}" data-kid="${escapeHtml(kid.id)}">Reset</button>`
+          : '';
       }
       return `<div class="chore-row">
         <div>
@@ -2898,6 +2914,7 @@ async function onChoreBoardClick(event) {
   const done = event.target.closest('[data-chore-done]');
   const approve = event.target.closest('[data-chore-approve]');
   const undo = event.target.closest('[data-chore-undo]');
+  const resetChore = event.target.closest('[data-chore-reset]');
   const dropChore = event.target.closest('[data-chore-drop]');
   const removeKid = event.target.closest('[data-kid-remove]');
   try {
@@ -2914,6 +2931,12 @@ async function onChoreBoardClick(event) {
     if (undo) {
       await DB.clearChoreCheck(undo.dataset.choreUndo);
       await loadChores();
+      return;
+    }
+    if (resetChore) {
+      await DB.resetChoreForKid(resetChore.dataset.choreReset, resetChore.dataset.kid);
+      await loadChores();
+      showToast('Chore is ready again. The points already earned stay.');
       return;
     }
     if (dropChore) {
