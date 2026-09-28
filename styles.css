@@ -136,7 +136,7 @@ body.is-meal-dragging .app-main {
   width: min(calc(100% - 24px), 696px);
   z-index: 40;
   display: grid;
-  grid-template-columns: 1fr 1fr 1fr;
+  grid-template-columns: repeat(4, 1fr);
   gap: 4px;
   padding: 6px 8px 8px;
   background: rgba(244, 241, 234, 0.94);
@@ -165,6 +165,7 @@ body.is-meal-dragging .app-main {
 }
 
 .tab svg { width: 22px; height: 22px; }
+.tab-bar-4 .tab { font-size: 0.68rem; }
 .tab.active { color: var(--primary); }
 
 .panel[hidden] { display: none !important; }
@@ -490,7 +491,11 @@ body.is-meal-dragging .app-main {
 .search-input,
 .select-input,
 #searchInput,
-.grocery-add input {
+.grocery-add input,
+.chore-reward input,
+.chore-add-kid input,
+.chore-add-line input,
+.chore-add-line select {
   width: 100%;
   padding: 12px 13px;
   border: 1px solid var(--border);
@@ -885,6 +890,56 @@ textarea { min-height: unset; }
   font-weight: 600;
   min-width: 0;
 }
+
+.chore-reward, .chore-add-kid {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  margin-bottom: 12px;
+}
+.chore-reward label {
+  font-size: 0.78rem;
+  font-weight: 650;
+  color: var(--text-muted);
+  flex-shrink: 0;
+}
+.chore-reward input, .chore-add-kid input { flex: 1; min-width: 0; }
+.kid-card {
+  background: var(--card);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 12px 14px 8px;
+  margin-bottom: 12px;
+}
+.kid-card-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 8px;
+  margin-bottom: 8px;
+}
+.kid-card-head h2 { font-size: 1.15rem; }
+.kid-points { font-weight: 750; color: var(--primary); }
+.kid-actions { display: flex; gap: 8px; align-items: center; }
+.chore-row {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 10px 0;
+  border-top: 1px solid var(--border);
+}
+.chore-row h3 { font-size: 1rem; font-weight: 650; }
+.chore-meta { display: block; font-size: 0.78rem; color: var(--text-muted); margin-top: 2px; }
+.chore-row-actions { display: flex; gap: 6px; flex-shrink: 0; }
+.chore-add-line {
+  display: flex;
+  gap: 6px;
+  margin: 8px 0 4px;
+}
+.chore-add-line input[type="text"] { flex: 1; min-width: 0; }
+.chore-add-line input[type="number"] { width: 52px; }
+.chore-add-line select { max-width: 7.5rem; }
 
 .toast {
   position: fixed;

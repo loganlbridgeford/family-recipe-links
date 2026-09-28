@@ -497,6 +497,164 @@
     return '/api/import-recipe';
   }
 
+  async function listKids() {
+    const { data, error } = await getClient()
+      .from('kids')
+      .select('id, display_name, points_reset_at, created_at')
+      .eq('household_id', requireHouseholdId())
+      .order('created_at', { ascending: true });
+    if (error) throw error;
+    return data || [];
+  }
+
+  async function addKid(displayName) {
+    const name = String(displayName || '').trim();
+    if (!name) throw new Error('Name required');
+    const { data, error } = await getClient()
+      .from('kids')
+      .insert([{ household_id: requireHouseholdId(), display_name: name }])
+      .select()
+      .single();
+    if (error) throw error;
+    return data;
+  }
+
+  async function removeKid(id) {
+    const { error } = await getClient()
+      .from('kids')
+      .delete()
+      .eq('id', id)
+      .eq('household_id', requireHouseholdId());
+    if (error) throw error;
+  }
+
+  async function listChores() {
+    const { data, error } = await getClient()
+      .from('chores')
+      .select('id, kid_id, title, points, cadence, created_at')
+      .eq('household_id', requireHouseholdId())
+      .order('created_at', { ascending: true });
+    if (error) throw error;
+    return data || [];
+  }
+
+  async function addChore(input) {
+    const title = String(input.title || '').trim();
+    if (!title) throw new Error('Chore required');
+    const points = Math.min(5, Math.max(1, Number(input.points) || 1));
+    const cadence = ['daily', 'weekdays', 'weekends', 'once'].includes(input.cadence)
+      ? input.cadence
+      : 'daily';
+    const { data, error } = await getClient()
+      .from('chores')
+      .insert([{
+        household_id: requireHouseholdId(),
+        kid_id: input.kidId,
+        title,
+        points,
+        cadence
+      }])
+      .select()
+      .single();
+    if (error) throw error;
+    return data;
+  }
+
+  async function removeChore(id) {
+    const { error } = await getClient()
+      .from('chores')
+      .delete()
+      .eq('id', id)
+      .eq('household_id', requireHouseholdId());
+    if (error) throw error;
+  }
+
+  async function listChoreChecksForDate(onDate) {
+    const { data, error } = await getClient()
+      .from('chore_checks')
+      .select('id, chore_id, kid_id, on_date, status, completed_at, approved_at')
+      .eq('household_id', requireHouseholdId())
+      .eq('on_date', onDate);
+    if (error) throw error;
+    return data || [];
+  }
+
+  async function listPendingChoreChecks() {
+    const { data, error } = await getClient()
+      .from('chore_checks')
+      .select('id, chore_id, kid_id, on_date, status, completed_at, approved_at')
+      .eq('household_id', requireHouseholdId())
+      .eq('status', 'pending');
+    if (error) throw error;
+    return data || [];
+  }
+
+  async function listApprovedChoreChecks() {
+    const { data, error } = await getClient()
+      .from('chore_checks')
+      .select('id, chore_id, kid_id, on_date, status, completed_at, approved_at')
+      .eq('household_id', requireHouseholdId())
+      .eq('status', 'approved');
+    if (error) throw error;
+    return data || [];
+  }
+
+  async function markChoreDone(choreId, kidId, onDate) {
+    const { data, error } = await getClient()
+      .from('chore_checks')
+      .upsert([{
+        household_id: requireHouseholdId(),
+        chore_id: choreId,
+        kid_id: kidId,
+        on_date: onDate,
+        status: 'pending',
+        completed_at: new Date().toISOString(),
+        approved_at: null
+      }], { onConflict: 'chore_id,on_date' })
+      .select()
+      .single();
+    if (error) throw error;
+    return data;
+  }
+
+  async function approveChoreCheck(id) {
+    const { data, error } = await getClient()
+      .from('chore_checks')
+      .update({ status: 'approved', approved_at: new Date().toISOString() })
+      .eq('id', id)
+      .eq('household_id', requireHouseholdId())
+      .select()
+      .single();
+    if (error) throw error;
+    return data;
+  }
+
+  async function clearChoreCheck(id) {
+    const { error } = await getClient()
+      .from('chore_checks')
+      .delete()
+      .eq('id', id)
+      .eq('household_id', requireHouseholdId());
+    if (error) throw error;
+  }
+
+  async function resetKidPoints(id) {
+    const { error } = await getClient()
+      .from('kids')
+      .update({ points_reset_at: new Date().toISOString() })
+      .eq('id', id)
+      .eq('household_id', requireHouseholdId());
+    if (error) throw error;
+  }
+
+  async function saveChoreReward(text) {
+    const { error } = await getClient()
+      .from('households')
+      .update({ chore_reward: String(text || '').trim() || null })
+      .eq('id', requireHouseholdId());
+    if (error) throw error;
+  }
+
   async function importRecipeFromUrl(url) {
     try {
       const res = await fetch(importRecipeEndpoint(), {
@@ -540,6 +698,21 @@
     isPlanConflict,
     removeRecipeFromAllPlans,
     uploadPhoto,
-    importRecipeFromUrl
+    importRecipeFromUrl,
+    isMissingSchema,
+    listKids,
+    addKid,
+    removeKid,
+    listChores,
+    addChore,
+    removeChore,
+    listChoreChecksForDate,
+    listPendingChoreChecks,
+    listApprovedChoreChecks,
+    markChoreDone,
+    approveChoreCheck,
+    clearChoreCheck,
+    resetKidPoints,
+    saveChoreReward
   };
 })(window);

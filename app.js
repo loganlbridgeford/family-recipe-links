@@ -23,7 +23,12 @@ const state = {
   saveTimer: null,
   saving: false,
   planUpdatedAt: null,
-  pendingSnapshot: null
+  pendingSnapshot: null,
+  kids: [],
+  chores: [],
+  choreChecksToday: [],
+  approvedChecks: [],
+  choresError: ''
 };
 
 let drag = null;
@@ -386,9 +391,11 @@ function setTab(name) {
     const planHeader = document.getElementById('header-plan');
     const recipesHeader = document.getElementById('header-recipes');
     const groceryHeader = document.getElementById('header-grocery');
+    const choresHeader = document.getElementById('header-chores');
     if (planHeader) planHeader.hidden = name !== 'plan';
     if (recipesHeader) recipesHeader.hidden = name !== 'recipes';
     if (groceryHeader) groceryHeader.hidden = name !== 'grocery';
+    if (choresHeader) choresHeader.hidden = name !== 'chores';
   };
   if (document.startViewTransition && !prefersReducedMotion()) {
     document.startViewTransition(apply);
@@ -2641,12 +2648,216 @@ async function loadAppData() {
   populateMemberSelect();
   renderRecipeList();
   try {
+    await loadChores();
+  } catch (err) {
+    console.error(err);
+  }
+  try {
     await loadWeek();
   } catch (err) {
     console.error(err);
     showToast('Could not load this week’s plan.');
     renderCalendar();
     renderGrocery();
+  }
+}
+
+/* ---------- Chores ---------- */
+
+function todayISODate() {
+  return toLocalISODate(new Date());
+}
+
+function choreDueOn(chore, date) {
+  const dow = date.getDay();
+  if (chore.cadence === 'weekdays') return dow >= 1 && dow <= 5;
+  if (chore.cadence === 'weekends') return dow === 0 || dow === 6;
+  return true;
+}
+
+function cadenceLabel(cadence) {
+  if (cadence === 'weekdays') return 'Weekdays';
+  if (cadence === 'weekends') return 'Weekends';
+  if (cadence === 'once') return 'Once';
+  return 'Every day';
+}
+
+function formatDoneTime(iso) {
+  if (!iso) return '';
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return '';
+  return d.toLocaleString('en-US', {
+    month: 'short',
+    day: 'numeric',
+    hour: 'numeric',
+    minute: '2-digit'
+  });
+}
+
+function kidPoints(kid) {
+  const reset = kid.points_reset_at ? new Date(kid.points_reset_at).getTime() : 0;
+  return state.approvedChecks.reduce((sum, check) => {
+    if (check.kid_id !== kid.id) return sum;
+    const when = new Date(check.approved_at || check.completed_at || 0).getTime();
+    if (when <= reset) return sum;
+    const chore = state.chores.find((row) => row.id === check.chore_id);
+    return sum + (chore ? Number(chore.points) || 1 : 1);
+  }, 0);
+}
+
+async function loadChores() {
+  const errEl = document.getElementById('choresError');
+  try {
+    state.kids = await DB.listKids();
+    state.chores = await DB.listChores();
+    const todayChecks = await DB.listChoreChecksForDate(todayISODate());
+    const pendingChecks = await DB.listPendingChoreChecks();
+    const byId = new Map();
+    todayChecks.concat(pendingChecks).forEach((row) => byId.set(row.id, row));
+    state.choreChecksToday = [...byId.values()];
+    state.approvedChecks = await DB.listApprovedChoreChecks();
+    state.choresError = '';
+    const reward = document.getElementById('choreReward');
+    if (reward && document.activeElement !== reward) {
+      reward.value = (APP_CONFIG.HOUSEHOLD && APP_CONFIG.HOUSEHOLD.chore_reward) || '';
+    }
+  } catch (err) {
+    console.error(err);
+    state.choresError = DB.isMissingSchema && DB.isMissingSchema(err)
+      ? 'Chores are not in the database yet. Run supabase/005_chores.sql once, then refresh.'
+      : 'Could not load chores.';
+  }
+  if (errEl) {
+    errEl.hidden = !state.choresError;
+    errEl.textContent = state.choresError;
+  }
+  renderChoreBoard();
+}
+
+function renderChoreBoard() {
+  const board = document.getElementById('choreBoard');
+  if (!board) return;
+  if (state.choresError) {
+    board.innerHTML = '';
+    return;
+  }
+  if (!state.kids.length) {
+    board.innerHTML = '<div class="empty-state"><p>Add a kid by first name. They are only used on this chore board.</p></div>';
+    return;
+  }
+  const today = new Date();
+  const todayKey = todayISODate();
+  board.innerHTML = state.kids.map((kid) => {
+    const rows = state.chores.filter((chore) => chore.kid_id === kid.id && choreDueOn(chore, today));
+    const visible = rows.filter((chore) => {
+      if (chore.cadence !== 'once') return true;
+      const check = state.choreChecksToday.find((row) => row.chore_id === chore.id)
+        || state.approvedChecks.find((row) => row.chore_id === chore.id);
+      return !(check && check.status === 'approved' && check.on_date !== todayKey);
+    });
+    const list = visible.map((chore) => {
+      const check = state.choreChecksToday.find((row) => row.chore_id === chore.id && row.on_date === todayKey)
+        || (chore.cadence === 'once'
+          ? (state.approvedChecks.find((row) => row.chore_id === chore.id)
+            || state.choreChecksToday.find((row) => row.chore_id === chore.id))
+          : null);
+      const pending = check && check.status === 'pending';
+      const approved = check && check.status === 'approved';
+      const when = check ? formatDoneTime(check.completed_at) : '';
+      let actions = `<button type="button" class="btn btn-primary btn-sm" data-chore-done="${escapeHtml(chore.id)}" data-kid="${escapeHtml(kid.id)}">Done</button>`;
+      let meta = `${cadenceLabel(chore.cadence)} · ${chore.points} pt${chore.points === 1 ? '' : 's'}`;
+      if (pending) {
+        meta = `Finished ${when}. Waiting for a parent.`;
+        actions = `<button type="button" class="btn btn-primary btn-sm" data-chore-approve="${escapeHtml(check.id)}">Approve</button>
+          <button type="button" class="btn btn-ghost btn-sm" data-chore-undo="${escapeHtml(check.id)}">Undo</button>`;
+      } else if (approved && (chore.cadence === 'once' || check.on_date === todayKey)) {
+        meta = `Approved · finished ${when}`;
+        actions = '';
+      }
+      return `<div class="chore-row">
+        <div>
+          <h3>${escapeHtml(chore.title)}</h3>
+          <span class="chore-meta">${escapeHtml(meta)}</span>
+        </div>
+        <div class="chore-row-actions">
+          ${actions}
+          <button type="button" class="btn btn-ghost btn-sm" data-chore-remove="${escapeHtml(chore.id)}" aria-label="Remove chore">✕</button>
+        </div>
+      </div>`;
+    }).join('');
+    const points = kidPoints(kid);
+    return `<article class="kid-card">
+      <div class="kid-card-head">
+        <h2>${escapeHtml(kid.display_name)}</h2>
+        <div class="kid-actions">
+          <span class="kid-points">${points} pt${points === 1 ? '' : 's'}</span>
+          <button type="button" class="btn btn-ghost btn-sm" data-kid-spend="${escapeHtml(kid.id)}" ${points ? '' : 'hidden'}>Spent</button>
+          <button type="button" class="btn btn-ghost btn-sm" data-kid-remove="${escapeHtml(kid.id)}">Remove</button>
+        </div>
+      </div>
+      ${list || '<p class="hint">No chores today.</p>'}
+      <form class="chore-add-line" data-kid-form="${escapeHtml(kid.id)}">
+        <input type="text" name="title" placeholder="Add a chore" autocomplete="off" required>
+        <input type="number" name="points" min="1" max="5" value="1" aria-label="Points">
+        <select name="cadence" aria-label="How often">
+          <option value="daily">Every day</option>
+          <option value="weekdays">Weekdays</option>
+          <option value="weekends">Weekends</option>
+          <option value="once">Just once</option>
+        </select>
+        <button type="submit" class="btn btn-secondary btn-sm">Add</button>
+      </form>
+    </article>`;
+  }).join('');
+}
+
+async function onChoreBoardClick(event) {
+  const done = event.target.closest('[data-chore-done]');
+  const approve = event.target.closest('[data-chore-approve]');
+  const undo = event.target.closest('[data-chore-undo]');
+  const removeChore = event.target.closest('[data-chore-remove]');
+  const removeKid = event.target.closest('[data-kid-remove]');
+  const spend = event.target.closest('[data-kid-spend]');
+  try {
+    if (done) {
+      await DB.markChoreDone(done.dataset.choreDone, done.dataset.kid, todayISODate());
+      await loadChores();
+      return;
+    }
+    if (approve) {
+      await DB.approveChoreCheck(approve.dataset.choreApprove);
+      await loadChores();
+      return;
+    }
+    if (undo) {
+      await DB.clearChoreCheck(undo.dataset.choreUndo);
+      await loadChores();
+      return;
+    }
+    if (removeChore) {
+      if (!confirm('Remove this chore?')) return;
+      await DB.removeChore(removeChore.dataset.choreRemove);
+      await loadChores();
+      return;
+    }
+    if (removeKid) {
+      const kid = state.kids.find((row) => row.id === removeKid.dataset.kidRemove);
+      const name = kid ? kid.display_name : 'this kid';
+      if (!confirm(`Remove ${name}? Their chores go too. Recipes and the meal plan stay.`)) return;
+      await DB.removeKid(removeKid.dataset.kidRemove);
+      await loadChores();
+      return;
+    }
+    if (spend) {
+      const kid = state.kids.find((row) => row.id === spend.dataset.kidSpend);
+      const name = kid ? kid.display_name : 'This kid';
+      if (!confirm(`Mark ${name}'s points as spent? The bank goes back to 0. Chores stay.`)) return;
+      await DB.resetKidPoints(spend.dataset.kidSpend);
+      await loadChores();
+    }
+  } catch (err) {
+    console.error(err);
+    showToast('Could not update chores.');
   }
 }
 
@@ -2670,6 +2881,52 @@ async function init() {
   });
   document.getElementById('prevWeek').addEventListener('click', () => changeWeek(-7));
   document.getElementById('nextWeek').addEventListener('click', () => changeWeek(7));
+  document.getElementById('addKidForm').addEventListener('submit', async (event) => {
+    event.preventDefault();
+    const input = document.getElementById('kidNameInput');
+    const name = input.value.trim();
+    if (!name) return;
+    try {
+      await DB.addKid(name);
+      input.value = '';
+      await loadChores();
+    } catch (err) {
+      console.error(err);
+      showToast(/duplicate|unique/i.test(String(err.message || '')) ? 'That kid is already on the board.' : 'Could not add that kid.');
+    }
+  });
+  document.getElementById('choreBoard').addEventListener('click', onChoreBoardClick);
+  document.getElementById('choreBoard').addEventListener('submit', async (event) => {
+    const form = event.target.closest('[data-kid-form]');
+    if (!form) return;
+    event.preventDefault();
+    const title = form.elements.title.value.trim();
+    if (!title) return;
+    try {
+      await DB.addChore({
+        kidId: form.dataset.kidForm,
+        title,
+        points: form.elements.points.value,
+        cadence: form.elements.cadence.value
+      });
+      form.reset();
+      form.elements.points.value = '1';
+      await loadChores();
+    } catch (err) {
+      console.error(err);
+      showToast('Could not add that chore.');
+    }
+  });
+  const rewardInput = document.getElementById('choreReward');
+  rewardInput.addEventListener('change', async () => {
+    try {
+      await DB.saveChoreReward(rewardInput.value);
+      if (APP_CONFIG.HOUSEHOLD) APP_CONFIG.HOUSEHOLD.chore_reward = rewardInput.value.trim();
+    } catch (err) {
+      console.error(err);
+      showToast('Could not save the reward.');
+    }
+  });
   document.getElementById('todayBtn').addEventListener('click', async () => {
     state.weekStart = getMondayISO(new Date());
     await loadWeek();

@@ -10,7 +10,7 @@
   <link rel="manifest" href="manifest.webmanifest">
   <link rel="apple-touch-icon" href="icons/apple-touch-icon.png">
   <link rel="icon" href="icons/icon.svg" type="image/svg+xml">
-  <link rel="stylesheet" href="styles.css?v=app-shell-10">
+  <link rel="stylesheet" href="styles.css?v=app-shell-11">
 </head>
 <body>
   <div class="app">
@@ -30,6 +30,12 @@
           <span class="household-label" data-household-name></span>
         </div>
         <button type="button" class="btn btn-icon btn-add" id="addRecipeOpenBtn" aria-label="Add recipe">+</button>
+      </div>
+      <div class="header-pane" id="header-chores" hidden>
+        <div class="header-titles">
+          <h1>Chores</h1>
+          <span class="household-label" data-household-name></span>
+        </div>
       </div>
       <div class="header-pane" id="header-grocery" hidden>
         <div class="header-titles">
@@ -67,9 +73,22 @@
         </div>
         <div class="grocery-list" id="groceryList"></div>
       </section>
+
+      <section class="panel" id="panel-chores" role="tabpanel" hidden>
+        <p class="hint" id="choresError" hidden></p>
+        <div class="chore-reward">
+          <label for="choreReward">Reward</label>
+          <input type="text" id="choreReward" placeholder="Movie night at 50 points" autocomplete="off">
+        </div>
+        <form class="chore-add-kid" id="addKidForm">
+          <input type="text" id="kidNameInput" placeholder="Add a kid — first name only" autocomplete="off">
+          <button type="submit" class="btn btn-primary">Add</button>
+        </form>
+        <div id="choreBoard"></div>
+      </section>
     </main>
 
-    <nav class="tab-bar" role="tablist" aria-label="Main">
+    <nav class="tab-bar tab-bar-4" role="tablist" aria-label="Main">
       <button type="button" class="tab active" data-tab="plan" role="tab" aria-selected="true">
         <svg viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="5" width="18" height="16" rx="2" fill="none" stroke="currentColor" stroke-width="1.8"/><path d="M8 3v4M16 3v4M3 10h18" fill="none" stroke="currentColor" stroke-width="1.8"/></svg>
         <span>Plan</span>
@@ -81,6 +100,10 @@
       <button type="button" class="tab" data-tab="grocery" role="tab" aria-selected="false">
         <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 7h15l-1.5 9H8L6 7z" fill="none" stroke="currentColor" stroke-width="1.8"/><circle cx="9" cy="20" r="1.4" fill="currentColor"/><circle cx="18" cy="20" r="1.4" fill="currentColor"/><path d="M6 7 5 3H2" fill="none" stroke="currentColor" stroke-width="1.8"/></svg>
         <span>Grocery</span>
+      </button>
+      <button type="button" class="tab" data-tab="chores" role="tab" aria-selected="false">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M8 6h12M8 12h12M8 18h12" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/><path d="M4 6.5 5.2 8 8 4.5M4 12.5 5.2 14 8 10.5M4 18.5 5.2 20 8 16.5" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg>
+        <span>Chores</span>
       </button>
     </nav>
   </div>
@@ -351,8 +374,8 @@
   </dialog>
 
   <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
-  <script src="js/config.js?v=app-shell-10"></script>
-  <script src="js/db.js?v=app-shell-10"></script>
-  <script src="app.js?v=app-shell-10"></script>
+  <script src="js/config.js?v=app-shell-11"></script>
+  <script src="js/db.js?v=app-shell-11"></script>
+  <script src="app.js?v=app-shell-11"></script>
 </body>
 </html>
