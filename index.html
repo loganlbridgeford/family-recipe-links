@@ -10,7 +10,7 @@
   <link rel="manifest" href="manifest.webmanifest">
   <link rel="apple-touch-icon" href="icons/apple-touch-icon.png">
   <link rel="icon" href="icons/icon.svg" type="image/svg+xml">
-  <link rel="stylesheet" href="styles.css?v=app-shell-11">
+  <link rel="stylesheet" href="styles.css?v=app-shell-12">
 </head>
 <body>
   <div class="app">
@@ -81,7 +81,7 @@
           <input type="text" id="choreReward" placeholder="Movie night at 50 points" autocomplete="off">
         </div>
         <form class="chore-add-kid" id="addKidForm">
-          <input type="text" id="kidNameInput" placeholder="Add a kid — first name only" autocomplete="off">
+          <input type="text" id="kidNameInput" placeholder="Type any kid's name" autocomplete="off" enterkeyhint="done">
           <button type="submit" class="btn btn-primary">Add</button>
         </form>
         <div id="choreBoard"></div>
@@ -374,8 +374,8 @@
   </dialog>
 
   <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
-  <script src="js/config.js?v=app-shell-11"></script>
-  <script src="js/db.js?v=app-shell-11"></script>
-  <script src="app.js?v=app-shell-11"></script>
+  <script src="js/config.js?v=app-shell-12"></script>
+  <script src="js/db.js?v=app-shell-12"></script>
+  <script src="app.js?v=app-shell-12"></script>
 </body>
 </html>

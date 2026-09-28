@@ -454,6 +454,7 @@
     if (error) throw error;
     const updates = [];
     (data || []).forEach((row) => {
+      if (row.week_start === CHORE_WEEK) return;
       let changed = false;
       const plan = row.plan || emptyPlan();
       C.DAYS.forEach((day) => {
@@ -497,45 +498,72 @@
     return '/api/import-recipe';
   }
 
+  const CHORE_WEEK = '1970-01-05';
+
+  function emptyChoreBoard() {
+    return { kids: [], chores: [], checks: [], reward: '' };
+  }
+
+  async function readChoreBoard() {
+    const row = await getPlan(CHORE_WEEK);
+    const raw = row.grocery_checked && row.grocery_checked.__chore_board;
+    const board = raw && typeof raw === 'object' ? raw : emptyChoreBoard();
+    const next = {
+      kids: Array.isArray(board.kids) ? board.kids : [],
+      chores: Array.isArray(board.chores) ? board.chores : [],
+      checks: Array.isArray(board.checks) ? board.checks : [],
+      reward: board.reward || ''
+    };
+    if (C.HOUSEHOLD) C.HOUSEHOLD.chore_reward = next.reward;
+    return next;
+  }
+
+  async function writeChoreBoard(board) {
+    await savePlan(CHORE_WEEK, {
+      plan: emptyPlan(),
+      grocery_checked: { __chore_board: board },
+      snack_adds: [],
+      manual_items: []
+    });
+    if (C.HOUSEHOLD) C.HOUSEHOLD.chore_reward = board.reward || '';
+  }
+
   async function listKids() {
-    const { data, error } = await getClient()
-      .from('kids')
-      .select('id, display_name, points_reset_at, created_at')
-      .eq('household_id', requireHouseholdId())
-      .order('created_at', { ascending: true });
-    if (error) throw error;
-    return data || [];
+    const board = await readChoreBoard();
+    return board.kids.slice().sort((a, b) => String(a.created_at || '').localeCompare(String(b.created_at || '')));
   }
 
   async function addKid(displayName) {
     const name = String(displayName || '').trim();
     if (!name) throw new Error('Name required');
-    const { data, error } = await getClient()
-      .from('kids')
-      .insert([{ household_id: requireHouseholdId(), display_name: name }])
-      .select()
-      .single();
-    if (error) throw error;
-    return data;
+    const board = await readChoreBoard();
+    if (board.kids.some((kid) => kid.display_name.toLowerCase() === name.toLowerCase())) {
+      const err = new Error('duplicate kid');
+      err.code = '23505';
+      throw err;
+    }
+    const kid = {
+      id: newId(),
+      display_name: name,
+      points_reset_at: null,
+      created_at: new Date().toISOString()
+    };
+    board.kids.push(kid);
+    await writeChoreBoard(board);
+    return kid;
   }
 
   async function removeKid(id) {
-    const { error } = await getClient()
-      .from('kids')
-      .delete()
-      .eq('id', id)
-      .eq('household_id', requireHouseholdId());
-    if (error) throw error;
+    const board = await readChoreBoard();
+    board.kids = board.kids.filter((kid) => kid.id !== id);
+    board.chores = board.chores.filter((chore) => chore.kid_id !== id);
+    board.checks = board.checks.filter((check) => check.kid_id !== id);
+    await writeChoreBoard(board);
   }
 
   async function listChores() {
-    const { data, error } = await getClient()
-      .from('chores')
-      .select('id, kid_id, title, points, cadence, created_at')
-      .eq('household_id', requireHouseholdId())
-      .order('created_at', { ascending: true });
-    if (error) throw error;
-    return data || [];
+    const board = await readChoreBoard();
+    return board.chores.slice().sort((a, b) => String(a.created_at || '').localeCompare(String(b.created_at || '')));
   }
 
   async function addChore(input) {
@@ -545,114 +573,94 @@
     const cadence = ['daily', 'weekdays', 'weekends', 'once'].includes(input.cadence)
       ? input.cadence
       : 'daily';
-    const { data, error } = await getClient()
-      .from('chores')
-      .insert([{
-        household_id: requireHouseholdId(),
-        kid_id: input.kidId,
-        title,
-        points,
-        cadence
-      }])
-      .select()
-      .single();
-    if (error) throw error;
-    return data;
+    const board = await readChoreBoard();
+    const chore = {
+      id: newId(),
+      kid_id: input.kidId,
+      title,
+      points,
+      cadence,
+      created_at: new Date().toISOString()
+    };
+    board.chores.push(chore);
+    await writeChoreBoard(board);
+    return chore;
   }
 
   async function removeChore(id) {
-    const { error } = await getClient()
-      .from('chores')
-      .delete()
-      .eq('id', id)
-      .eq('household_id', requireHouseholdId());
-    if (error) throw error;
+    const board = await readChoreBoard();
+    board.chores = board.chores.filter((chore) => chore.id !== id);
+    board.checks = board.checks.filter((check) => check.chore_id !== id);
+    await writeChoreBoard(board);
   }
 
   async function listChoreChecksForDate(onDate) {
-    const { data, error } = await getClient()
-      .from('chore_checks')
-      .select('id, chore_id, kid_id, on_date, status, completed_at, approved_at')
-      .eq('household_id', requireHouseholdId())
-      .eq('on_date', onDate);
-    if (error) throw error;
-    return data || [];
+    const board = await readChoreBoard();
+    return board.checks.filter((check) => check.on_date === onDate);
   }
 
   async function listPendingChoreChecks() {
-    const { data, error } = await getClient()
-      .from('chore_checks')
-      .select('id, chore_id, kid_id, on_date, status, completed_at, approved_at')
-      .eq('household_id', requireHouseholdId())
-      .eq('status', 'pending');
-    if (error) throw error;
-    return data || [];
+    const board = await readChoreBoard();
+    return board.checks.filter((check) => check.status === 'pending');
   }
 
   async function listApprovedChoreChecks() {
-    const { data, error } = await getClient()
-      .from('chore_checks')
-      .select('id, chore_id, kid_id, on_date, status, completed_at, approved_at')
-      .eq('household_id', requireHouseholdId())
-      .eq('status', 'approved');
-    if (error) throw error;
-    return data || [];
+    const board = await readChoreBoard();
+    return board.checks.filter((check) => check.status === 'approved');
   }
 
   async function markChoreDone(choreId, kidId, onDate) {
-    const { data, error } = await getClient()
-      .from('chore_checks')
-      .upsert([{
-        household_id: requireHouseholdId(),
+    const board = await readChoreBoard();
+    const now = new Date().toISOString();
+    let check = board.checks.find((row) => row.chore_id === choreId && row.on_date === onDate);
+    if (!check) {
+      check = {
+        id: newId(),
         chore_id: choreId,
         kid_id: kidId,
         on_date: onDate,
         status: 'pending',
-        completed_at: new Date().toISOString(),
+        completed_at: now,
         approved_at: null
-      }], { onConflict: 'chore_id,on_date' })
-      .select()
-      .single();
-    if (error) throw error;
-    return data;
+      };
+      board.checks.push(check);
+    } else {
+      check.status = 'pending';
+      check.completed_at = now;
+      check.approved_at = null;
+    }
+    await writeChoreBoard(board);
+    return check;
   }
 
   async function approveChoreCheck(id) {
-    const { data, error } = await getClient()
-      .from('chore_checks')
-      .update({ status: 'approved', approved_at: new Date().toISOString() })
-      .eq('id', id)
-      .eq('household_id', requireHouseholdId())
-      .select()
-      .single();
-    if (error) throw error;
-    return data;
+    const board = await readChoreBoard();
+    const check = board.checks.find((row) => row.id === id);
+    if (!check) throw new Error('Check not found');
+    check.status = 'approved';
+    check.approved_at = new Date().toISOString();
+    await writeChoreBoard(board);
+    return check;
   }
 
   async function clearChoreCheck(id) {
-    const { error } = await getClient()
-      .from('chore_checks')
-      .delete()
-      .eq('id', id)
-      .eq('household_id', requireHouseholdId());
-    if (error) throw error;
+    const board = await readChoreBoard();
+    board.checks = board.checks.filter((row) => row.id !== id);
+    await writeChoreBoard(board);
   }
 
   async function resetKidPoints(id) {
-    const { error } = await getClient()
-      .from('kids')
-      .update({ points_reset_at: new Date().toISOString() })
-      .eq('id', id)
-      .eq('household_id', requireHouseholdId());
-    if (error) throw error;
+    const board = await readChoreBoard();
+    const kid = board.kids.find((row) => row.id === id);
+    if (!kid) throw new Error('Kid not found');
+    kid.points_reset_at = new Date().toISOString();
+    await writeChoreBoard(board);
   }
 
   async function saveChoreReward(text) {
-    const { error } = await getClient()
-      .from('households')
-      .update({ chore_reward: String(text || '').trim() || null })
-      .eq('id', requireHouseholdId());
-    if (error) throw error;
+    const board = await readChoreBoard();
+    board.reward = String(text || '').trim();
+    await writeChoreBoard(board);
   }
 
   async function importRecipeFromUrl(url) {

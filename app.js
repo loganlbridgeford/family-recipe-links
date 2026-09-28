@@ -2723,9 +2723,7 @@ async function loadChores() {
     }
   } catch (err) {
     console.error(err);
-    state.choresError = DB.isMissingSchema && DB.isMissingSchema(err)
-      ? 'Chores are not in the database yet. Run supabase/005_chores.sql once, then refresh.'
-      : 'Could not load chores.';
+    state.choresError = 'Could not load chores.';
   }
   if (errEl) {
     errEl.hidden = !state.choresError;
