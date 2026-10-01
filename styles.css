@@ -1002,7 +1002,7 @@ textarea { min-height: unset; }
 .reward-bank .chore-add-form,
 .reward-bank .reward-card {
   background: #3a3124;
-  border-color: #6b5a3e;
+  border-color: #e4d3b0;
   color: #f8f1e3;
 }
 .reward-bank .hint { color: #d9cbb3; }
@@ -1013,6 +1013,31 @@ textarea { min-height: unset; }
   background: #fff8ee;
   color: #1c1c1c;
   border-color: #e4d3b0;
+}
+.reward-bank input::placeholder {
+  color: #6b5a3e;
+}
+/* Light-theme grays and inherited cream were disappearing on the dark gold bank. */
+.reward-bank .btn-ghost {
+  color: #f8f1e3;
+  border-color: #e4d3b0;
+}
+.reward-bank .btn-primary {
+  border: 1px solid #e8c56b;
+}
+.reward-bank .btn-primary:disabled {
+  opacity: 1;
+  background: transparent;
+  color: #f8f1e3;
+  border-color: #e4d3b0;
+}
+.reward-bank .chore-kid-chip {
+  color: #2c2416;
+  border-color: #6b5a3e;
+}
+.reward-bank .stepper button {
+  color: #1c1c1c;
+  border: 1px solid #6b5a3e;
 }
 .point-pool {
   background: #e8c56b;
