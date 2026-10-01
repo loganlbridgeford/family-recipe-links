@@ -2833,7 +2833,7 @@ function renderRewardList() {
   list.innerHTML = state.rewards.map((reward) => {
     const open = state.redeemRewardId === reward.id;
     const payers = open ? `<div class="reward-pay">
-      ${state.kids.map((kid) => `<label class="chore-kid-chip"><input type="checkbox" name="pay" value="${escapeHtml(kid.id)}"> ${escapeHtml(kid.display_name)} (${kidPoints(kid)})</label>`).join('')}
+      ${state.kids.map((kid) => `<label class="chore-kid-chip"><input type="checkbox" name="pay" value="${escapeHtml(kid.id)}"><span class="chore-kid-name">${escapeHtml(kid.display_name)} (${kidPoints(kid)})</span></label>`).join('')}
       <button type="button" class="btn btn-primary btn-sm" data-reward-take="${escapeHtml(reward.id)}">Take ${reward.cost} points</button>
     </div>` : '';
     return `<article class="reward-card">

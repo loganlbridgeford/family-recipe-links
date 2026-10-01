@@ -1031,9 +1031,19 @@ textarea { min-height: unset; }
   color: #f8f1e3;
   border-color: #e4d3b0;
 }
-.reward-bank .chore-kid-chip {
-  color: #2c2416;
+/* Kid names are anonymous flex text on a white pill. Cream inherited from the
+   dark card was winning on phone and desktop, so the name is its own element
+   with the dark color pinned for both checked and unchecked. */
+.reward-bank .reward-card .reward-pay .chore-kid-chip {
+  background: #fff;
   border-color: #6b5a3e;
+  color: #1c1c1c;
+}
+.reward-bank .reward-card .reward-pay .chore-kid-chip .chore-kid-name,
+.reward-bank .reward-card .reward-pay .chore-kid-chip:has(input:checked),
+.reward-bank .reward-card .reward-pay .chore-kid-chip:has(input:checked) .chore-kid-name {
+  color: #1c1c1c;
+  -webkit-text-fill-color: #1c1c1c;
 }
 .reward-bank .stepper button {
   color: #1c1c1c;
