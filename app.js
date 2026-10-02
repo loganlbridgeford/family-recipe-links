@@ -32,7 +32,9 @@ const state = {
   redemptions: [],
   redeemRewardId: null,
   choreView: 'chores',
-  choresError: ''
+  choresError: '',
+  homeRecipeId: null,
+  homeSnapshot: null
 };
 
 let drag = null;
@@ -345,6 +347,7 @@ async function loadWeek() {
   renderGrocery();
   renderRecipeList();
   renderSnackList();
+  renderHomeIfVisible();
 }
 
 let refetchTimer = null;
@@ -367,6 +370,8 @@ async function refetchOpenWeek() {
     renderGrocery();
     renderRecipeList();
     renderSnackList();
+    if (getMondayISO(new Date()) !== state.weekStart) state.homeSnapshot = null;
+    renderHomeIfVisible();
   } catch (err) {
     console.error(err);
   }
@@ -381,6 +386,12 @@ function prefersReducedMotion() {
 }
 
 function setTab(name) {
+  const app = document.querySelector('.app');
+  const enteringHome = name === 'home' && !(app && app.classList.contains('is-home'));
+  if (enteringHome) {
+    state.homeRecipeId = null;
+    state.homeSnapshot = null;
+  }
   const apply = () => {
     document.querySelectorAll('.tab').forEach((tab) => {
       const on = tab.dataset.tab === name;
@@ -392,14 +403,14 @@ function setTab(name) {
       panel.hidden = !on;
       panel.classList.toggle('active', on);
     });
-    const planHeader = document.getElementById('header-plan');
-    const recipesHeader = document.getElementById('header-recipes');
-    const groceryHeader = document.getElementById('header-grocery');
-    const choresHeader = document.getElementById('header-chores');
-    if (planHeader) planHeader.hidden = name !== 'plan';
-    if (recipesHeader) recipesHeader.hidden = name !== 'recipes';
-    if (groceryHeader) groceryHeader.hidden = name !== 'grocery';
-    if (choresHeader) choresHeader.hidden = name !== 'chores';
+    ['home', 'plan', 'recipes', 'grocery', 'chores'].forEach((id) => {
+      const header = document.getElementById(`header-${id}`);
+      if (header) header.hidden = name !== id;
+    });
+    if (app) app.classList.toggle('is-home', name === 'home');
+    const tabBar = document.querySelector('.tab-bar');
+    if (tabBar) tabBar.hidden = name === 'home';
+    if (name === 'home') renderHome();
   };
   if (document.startViewTransition && !prefersReducedMotion()) {
     document.startViewTransition(apply);
@@ -408,15 +419,188 @@ function setTab(name) {
   }
 }
 
+function currentWeekSnapshot() {
+  return {
+    weekStart: state.weekStart,
+    plan: state.plan,
+    groceryChecked: state.groceryChecked,
+    snackAdds: state.snackAdds,
+    manualItems: state.manualItems
+  };
+}
+
+function snapshotFromPlanRow(weekStart, row) {
+  return {
+    weekStart,
+    plan: (row && row.plan) || DB.emptyPlan(),
+    groceryChecked: (row && row.grocery_checked) || {},
+    snackAdds: (row && row.snack_adds) || [],
+    manualItems: row && Array.isArray(row.manual_items) ? row.manual_items : []
+  };
+}
+
+async function ensureHomeSnapshot() {
+  const monday = getMondayISO(new Date());
+  if (monday === state.weekStart) return currentWeekSnapshot();
+  if (state.homeSnapshot && state.homeSnapshot.weekStart === monday) return state.homeSnapshot;
+  const row = await DB.getPlan(monday);
+  state.homeSnapshot = snapshotFromPlanRow(monday, row);
+  return state.homeSnapshot;
+}
+
+function pickHomeRecipe() {
+  if (state.homeRecipeId) {
+    const existing = getRecipe(state.homeRecipeId);
+    if (existing) return existing;
+  }
+  const list = state.recipes.filter((recipe) => recipe && recipe.name);
+  if (!list.length) {
+    state.homeRecipeId = null;
+    return null;
+  }
+  const meal = list[Math.floor(Math.random() * list.length)];
+  state.homeRecipeId = meal.id;
+  return meal;
+}
+
+function mealPreviewBits(plan, day, slot) {
+  const val = day ? slotValue(plan, day, slot) : null;
+  const name = val ? slotName(val) : '';
+  const sides = val ? (val.sides || []).map(slotName).filter(Boolean) : [];
+  const text = name ? (sides.length ? `${name} · ${sides.join(', ')}` : name) : 'Nothing planned';
+  return { label: C.SLOT_LABELS[slot], text, empty: !name };
+}
+
+function uncheckedGroceryLines(source) {
+  const items = getGroceryItems(source);
+  const checked = source.groceryChecked || {};
+  const lines = [];
+  Object.keys(items).forEach((key) => {
+    if (checked[key]) return;
+    const item = items[key];
+    lines.push(groceryItemParts({
+      key,
+      item: item.item,
+      originals: item.originals,
+      qtys: item.qtys,
+      recipeNames: item.recipeNames
+    }).name);
+  });
+  (source.manualItems || []).forEach((manual) => {
+    if (manual.checked) return;
+    const name = String(manual.item || '').trim();
+    if (!name) return;
+    lines.push(manual.qty ? `${name} — ${manual.qty}` : name);
+  });
+  lines.sort((a, b) => a.localeCompare(b));
+  return lines;
+}
+
+function choreHomeStats() {
+  if (state.choresError) return { due: 0, waiting: 0, ready: false, error: true };
+  if (!state.kids.length) return { due: 0, waiting: 0, ready: false };
+  const today = new Date();
+  const todayKey = todayISODate();
+  let due = 0;
+  let waiting = 0;
+  state.kids.forEach((kid) => {
+    state.chores.forEach((chore) => {
+      if (!choreKidIds(chore).includes(kid.id) || !choreDueOn(chore, today)) return;
+      due += 1;
+      const check = checkForKid(chore, kid.id, todayKey);
+      const pending = check && check.status === 'pending' && (chore.cadence === 'once' || check.on_date === todayKey);
+      if (pending) waiting += 1;
+    });
+  });
+  return { due, waiting, ready: true };
+}
+
+function homeTile(kicker, body, go) {
+  return `<button type="button" class="home-tile" data-home-go="${go}"><span class="home-kicker">${kicker}</span>${body}</button>`;
+}
+
+function paintHome(snap) {
+  const grid = document.getElementById('homeGrid');
+  if (!grid) return;
+  const points = familyPointTotal();
+  const pointsEl = document.getElementById('homePoints');
+  if (pointsEl) pointsEl.textContent = `${points} point${points === 1 ? '' : 's'}`;
+  const pointLabel = `${points} point${points === 1 ? '' : 's'}`;
+  const day = snap ? dayKeyForWeek(snap.weekStart) : null;
+  const dayDate = snap && day ? getDayDate(snap.weekStart, C.DAYS.indexOf(day)) : new Date();
+  const dateLabel = dayDate.toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' });
+  const meals = C.MEAL_SLOTS.map((slot) => {
+    const bit = mealPreviewBits(snap && snap.plan, day, slot);
+    return `<span class="home-line"><span class="home-line-slot">${escapeHtml(bit.label)}</span><span class="home-line-name${bit.empty ? ' empty' : ''}">${escapeHtml(bit.text)}</span></span>`;
+  }).join('');
+  const recipe = pickHomeRecipe();
+  const photo = recipe ? safeHttpUrl(recipe.photo_url) : '';
+  const recipeBody = recipe
+    ? `${photo ? `<img class="home-tile-photo" src="${escapeHtml(photo)}" alt="">` : ''}<span class="home-tile-title">${escapeHtml(recipe.name)}</span><span class="home-note">${escapeHtml(recipe.category || 'Recipe')}</span>`
+    : '<span class="home-tile-title">Add a recipe</span><span class="home-note">Nothing in the kitchen yet.</span>';
+  const groceryLines = snap ? uncheckedGroceryLines(snap) : [];
+  const groceryShown = groceryLines.slice(0, 4);
+  const groceryBody = groceryShown.length
+    ? `${groceryShown.map((line) => `<span class="home-line">${escapeHtml(line)}</span>`).join('')}<span class="home-note">${groceryLines.length} left</span>`
+    : '<span class="home-tile-title">List is clear</span>';
+  const chores = choreHomeStats();
+  const waitingNote = chores.waiting ? `${chores.waiting} waiting for approval` : 'None waiting';
+  const choreBody = chores.error
+    ? `<span class="home-points-figure">${escapeHtml(pointLabel)}</span><span class="home-tile-title">Could not load chores</span>`
+    : !chores.ready
+      ? `<span class="home-points-figure">${escapeHtml(pointLabel)}</span><span class="home-tile-title">Set up chores</span>`
+      : `<span class="home-points-figure">${escapeHtml(pointLabel)}</span><span class="home-line">${chores.due} due today</span><span class="home-note">${escapeHtml(waitingNote)}</span>`;
+  grid.innerHTML = [
+    homeTile('Today', `<span class="home-tile-title">${escapeHtml(dateLabel)}</span>${meals}`, 'plan'),
+    homeTile('Recipe', recipeBody, recipe ? 'recipe' : 'recipes'),
+    homeTile('Grocery', groceryBody, 'grocery'),
+    homeTile('Chores', choreBody, 'chores')
+  ].join('');
+}
+
+function renderHome() {
+  const monday = getMondayISO(new Date());
+  const snap = monday === state.weekStart
+    ? currentWeekSnapshot()
+    : (state.homeSnapshot && state.homeSnapshot.weekStart === monday ? state.homeSnapshot : null);
+  paintHome(snap);
+  if (snap) return;
+  ensureHomeSnapshot().then((fresh) => {
+    const home = document.getElementById('panel-home');
+    if (home && !home.hidden) paintHome(fresh);
+  }).catch((err) => {
+    console.error(err);
+  });
+}
+
+function renderHomeIfVisible() {
+  const home = document.getElementById('panel-home');
+  if (home && !home.hidden) renderHome();
+}
+
+async function openHomeOnCurrentWeek(tab) {
+  const monday = getMondayISO(new Date());
+  if (state.weekStart !== monday) {
+    state.weekStart = monday;
+    state.homeSnapshot = null;
+    await loadWeek();
+  }
+  setTab(tab);
+}
+
 /* ---------- Calendar ---------- */
 
-function todayDayKey() {
-  const monday = parseDate(state.weekStart);
+function dayKeyForWeek(weekStart) {
+  const monday = parseDate(weekStart);
   const now = new Date();
   now.setHours(0, 0, 0, 0);
   const diff = Math.round((now - monday) / 86400000);
   if (diff < 0 || diff > 6) return null;
   return C.DAYS[diff];
+}
+
+function todayDayKey() {
+  return dayKeyForWeek(state.weekStart);
 }
 
 function mealCellSidesHtml(val) {
@@ -1997,11 +2181,14 @@ function hideGroceryKey(key) {
   state.groceryChecked.__hidden = hidden;
 }
 
-function getGroceryItems() {
+function getGroceryItems(source) {
+  const plan = source ? source.plan : state.plan;
+  const snackAdds = source ? (source.snackAdds || []) : state.snackAdds;
+  const checked = source ? (source.groceryChecked || {}) : state.groceryChecked;
   const items = {};
   C.DAYS.forEach((day) => {
     C.MEAL_SLOTS.forEach((slot) => {
-      const val = slotValue(state.plan, day, slot);
+      const val = slotValue(plan, day, slot);
       if (!val) return;
       if (val.type === 'recipe' && val.recipe && DB.canPlan(val.recipe)) addRecipeGrocery(items, val.recipe);
       (val.sides || []).forEach((side) => {
@@ -2011,11 +2198,12 @@ function getGroceryItems() {
       });
     });
   });
-  state.snackAdds.forEach((id) => {
+  snackAdds.forEach((id) => {
     const meal = getRecipe(id);
     if (meal && DB.canPlan(meal)) addRecipeGrocery(items, meal);
   });
-  hiddenGroceryKeys().forEach((key) => {
+  const hidden = Array.isArray(checked.__hidden) ? checked.__hidden : [];
+  hidden.forEach((key) => {
     delete items[key];
   });
   return items;
@@ -2468,12 +2656,72 @@ function householdTitle() {
   return (C.HOUSEHOLD && C.HOUSEHOLD.name) || 'Family';
 }
 
+function renderMemberList() {
+  const list = document.getElementById('memberList');
+  if (!list) return;
+  if (!state.members.length) {
+    list.innerHTML = '<li class="hint">No one in this family yet.</li>';
+    return;
+  }
+  list.innerHTML = state.members.map((member) => {
+    const remove = member.id
+      ? `<button type="button" class="btn btn-ghost btn-sm" data-member-remove="${escapeHtml(member.id)}">Remove</button>`
+      : '';
+    return `<li class="member-row"><span>${escapeHtml(member.display_name)}</span>${remove}</li>`;
+  }).join('');
+}
+
 function renderHouseholdChrome() {
   document.querySelectorAll('[data-household-name]').forEach((el) => {
     el.textContent = householdTitle();
   });
   const hint = document.getElementById('planHouseholdHint');
   if (hint) hint.textContent = `${householdTitle()} — two phones, same week. Send the invite to your people, not the bare website.`;
+  renderMemberList();
+}
+
+async function refreshMembers() {
+  const members = await DB.listMembers();
+  state.members = members && members.length ? members : [{ display_name: 'Me', sort_order: 1 }];
+  populateMemberSelect();
+  renderMemberList();
+}
+
+async function handleAddMember(event) {
+  event.preventDefault();
+  const input = document.getElementById('memberNameInput');
+  const name = input.value.trim();
+  if (!name) {
+    showToast('Type a name.');
+    return;
+  }
+  const btn = event.submitter;
+  if (btn) btn.disabled = true;
+  try {
+    await DB.addMember(name);
+    input.value = '';
+    await refreshMembers();
+    showToast(`${name} is in the family.`);
+  } catch (err) {
+    console.error(err);
+    showToast(err && err.code === 'duplicate_member' ? `${name} is already in the family.` : 'Could not add that person.');
+  } finally {
+    if (btn) btn.disabled = false;
+  }
+}
+
+async function handleRemoveMember(id) {
+  const member = state.members.find((row) => row.id === id);
+  const name = member ? member.display_name : 'this person';
+  if (!confirm(`Remove ${name}? Their recipes stay.`)) return;
+  try {
+    await DB.removeMember(id);
+    await refreshMembers();
+    showToast(`${name} was removed. Recipes stay.`);
+  } catch (err) {
+    console.error(err);
+    showToast('Could not remove that person.');
+  }
 }
 
 function rememberFamilyInUrl(row) {
@@ -2664,6 +2912,7 @@ async function loadAppData() {
     renderCalendar();
     renderGrocery();
   }
+  renderHomeIfVisible();
 }
 
 /* ---------- Chores ---------- */
@@ -2750,6 +2999,7 @@ async function loadChores() {
     errEl.textContent = state.choresError;
   }
   renderChoreBoard();
+  renderHomeIfVisible();
 }
 
 function choreKidIds(chore) {
@@ -2978,6 +3228,34 @@ async function init() {
 
   document.querySelectorAll('.tab').forEach((tab) => {
     tab.addEventListener('click', () => setTab(tab.dataset.tab));
+  });
+  document.querySelectorAll('[data-go-home]').forEach((btn) => {
+    btn.addEventListener('click', () => setTab('home'));
+  });
+  document.getElementById('homeGrid').addEventListener('click', (event) => {
+    const tile = event.target.closest('[data-home-go]');
+    if (!tile) return;
+    const go = tile.dataset.homeGo;
+    if (go === 'plan' || go === 'grocery') {
+      openHomeOnCurrentWeek(go).catch((err) => {
+        console.error(err);
+        showToast('Could not open that page.');
+      });
+      return;
+    }
+    if (go === 'recipe') {
+      const meal = state.homeRecipeId && getRecipe(state.homeRecipeId);
+      if (meal) openRecipeCard(meal.id, { fromLibrary: true });
+      else setTab('recipes');
+      return;
+    }
+    if (go === 'recipes' || go === 'chores') setTab(go);
+  });
+  document.getElementById('addMemberForm').addEventListener('submit', handleAddMember);
+  document.getElementById('memberList').addEventListener('click', (event) => {
+    const btn = event.target.closest('[data-member-remove]');
+    if (!btn || !btn.dataset.memberRemove) return;
+    handleRemoveMember(btn.dataset.memberRemove);
   });
   document.getElementById('prevWeek').addEventListener('click', () => changeWeek(-7));
   document.getElementById('nextWeek').addEventListener('click', () => changeWeek(7));
