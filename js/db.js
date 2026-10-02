@@ -234,6 +234,53 @@
     return data || [];
   }
 
+  function duplicateMemberError(error) {
+    return !!(error && (error.code === '23505' || /duplicate|unique/i.test(String(error.message || ''))));
+  }
+
+  async function addMember(displayName) {
+    const name = String(displayName || '').trim();
+    if (!name) {
+      const err = new Error('Name required');
+      err.code = 'name_required';
+      throw err;
+    }
+    const existing = await listMembers();
+    if (existing.some((member) => String(member.display_name || '').trim().toLowerCase() === name.toLowerCase())) {
+      const err = new Error('duplicate_member');
+      err.code = 'duplicate_member';
+      throw err;
+    }
+    const sort = existing.reduce((max, member) => Math.max(max, Number(member.sort_order) || 0), 0) + 1;
+    const { data, error } = await getClient()
+      .from('household_members')
+      .insert([{
+        household_id: requireHouseholdId(),
+        display_name: name,
+        role: 'adult',
+        sort_order: sort
+      }])
+      .select('id, display_name, role, sort_order')
+      .single();
+    if (duplicateMemberError(error)) {
+      const err = new Error('duplicate_member');
+      err.code = 'duplicate_member';
+      throw err;
+    }
+    if (error) throw error;
+    return data;
+  }
+
+  async function removeMember(id) {
+    if (!id) throw new Error('Member id required');
+    const { error } = await getClient()
+      .from('household_members')
+      .delete()
+      .eq('id', id)
+      .eq('household_id', requireHouseholdId());
+    if (error) throw error;
+  }
+
   async function listRecipes() {
     const { data, error } = await getClient()
       .from('recipes')
@@ -837,6 +884,8 @@
     joinHousehold,
     createHousehold,
     listMembers,
+    addMember,
+    removeMember,
     listRecipes,
     addRecipe,
     updateRecipe,
