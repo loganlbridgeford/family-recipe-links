@@ -115,6 +115,28 @@ function showToast(msg) {
   setTimeout(() => el.classList.remove('show'), 2200);
 }
 
+let confirmResolver = null;
+
+function askConfirm(message, options) {
+  const opts = options || {};
+  const dialog = document.getElementById('confirmDialog');
+  document.getElementById('confirmMessage').textContent = message;
+  document.getElementById('confirmOk').textContent = opts.ok || 'Confirm';
+  document.getElementById('confirmCancel').textContent = opts.cancel || 'Cancel';
+  return new Promise((resolve) => {
+    confirmResolver = resolve;
+    if (!dialog.open) dialog.showModal();
+  });
+}
+
+function settleConfirm(value) {
+  const resolve = confirmResolver;
+  confirmResolver = null;
+  const dialog = document.getElementById('confirmDialog');
+  if (dialog && dialog.open) dialog.close();
+  if (resolve) resolve(value);
+}
+
 function getRecipe(id) {
   return state.recipes.find((r) => String(r.id) === String(id)) || null;
 }
@@ -409,7 +431,7 @@ function setTab(name) {
     });
     if (app) app.classList.toggle('is-home', name === 'home');
     const tabBar = document.querySelector('.tab-bar');
-    if (tabBar) tabBar.hidden = name === 'home';
+    if (tabBar) tabBar.hidden = false;
     if (name === 'home') renderHome();
   };
   if (document.startViewTransition && !prefersReducedMotion()) {
@@ -1253,7 +1275,10 @@ function openRecipeCard(mealId, context = {}) {
 
   const ings = meal.ingredients || [];
   document.getElementById('recipeIngredients').innerHTML = ings.length
-    ? ings.map((i) => `<li>${escapeHtml(i.item)}${i.qty ? ' — ' + escapeHtml(i.qty) : ''}</li>`).join('')
+    ? ings.map((i) => {
+      const fixed = repairStoredIngredient(i);
+      return `<li>${escapeHtml(fixed.item)}${fixed.qty ? ' — ' + escapeHtml(fixed.qty) : ''}</li>`;
+    }).join('')
     : '<li>No ingredients — won’t add to grocery.</li>';
 
   const instr = meal.instructions || {};
@@ -1583,70 +1608,192 @@ const INGREDIENT_UNITS = new Set([
   'head', 'heads',
   'slice', 'slices',
   'piece', 'pieces',
+  'sprig', 'sprigs',
+  'inch', 'inches',
   'large', 'small', 'medium', 'whole'
 ]);
 
-const SECTION_KEYWORDS = {
-  produce: [
+const UNICODE_FRACTIONS = [
+  ['\u00bc', '1/4'],
+  ['\u00bd', '1/2'],
+  ['\u00be', '3/4'],
+  ['\u2153', '1/3'],
+  ['\u2154', '2/3'],
+  ['\u215b', '1/8'],
+  ['\u215c', '3/8'],
+  ['\u215d', '5/8'],
+  ['\u215e', '7/8']
+];
+
+const GLUED_FRACTION = '(?:1\\/2|1\\/4|3\\/4|1\\/3|2\\/3|1\\/8|3\\/8|5\\/8|7\\/8)';
+
+function ingredientKey(item) {
+  return String(item || '')
+    .toLowerCase()
+    .replace(/&/g, ' and ')
+    .replace(/[^a-z0-9\s]/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
+function hasTerm(key, term) {
+  const escaped = term.replace(/[.*+?^${}()|[\]\\]/g, '\\$&').replace(/\s+/g, '\\s+');
+  return new RegExp(`\\b${escaped}(?:es|s)?\\b`, 'i').test(key);
+}
+
+function hasAnyTerm(key, terms) {
+  return terms.some((term) => hasTerm(key, term));
+}
+
+function isExplicitPantry(key) {
+  if (hasTerm(key, 'cream of tartar')) return true;
+  if (hasAnyTerm(key, ['broth', 'stock', 'bouillon', 'soup'])) return true;
+  if (hasAnyTerm(key, ['sauce', 'paste', 'puree'])) return true;
+  if (hasAnyTerm(key, ['canned', 'can', 'jar'])) return true;
+  if (hasAnyTerm(key, ['oil', 'vinegar', 'flour', 'sugar', 'salt', 'seasoning', 'spice', 'powder', 'extract', 'starch'])) return true;
+  if (/\bdried\b/.test(key)) return true;
+  if (/\bground\s+(ginger|cinnamon|nutmeg|cloves?|cumin|allspice|cardamom|mustard|pepper)\b/.test(key)) return true;
+  if (hasAnyTerm(key, ['paprika', 'cumin', 'oregano', 'cinnamon', 'nutmeg', 'cayenne', 'allspice', 'chili powder', 'peppercorn', 'bay leaf'])) return true;
+  if (hasTerm(key, 'bell pepper') || hasTerm(key, 'sweet pepper') || hasTerm(key, 'mini pepper')) return false;
+  if (/\bpeppers\b/.test(key)) return false;
+  if (hasTerm(key, 'pepper')) return true;
+  return false;
+}
+
+function isExplicitMeat(key) {
+  if (hasAnyTerm(key, ['broth', 'stock', 'bouillon'])) return false;
+  if (hasAnyTerm(key, [
+    'chicken', 'beef', 'pork', 'turkey', 'sausage', 'bacon', 'ham', 'shrimp',
+    'salmon', 'fish', 'steak', 'lamb', 'tenderloin', 'meatball', 'hamburger'
+  ])) return true;
+  return /\bground\s+(beef|turkey|pork|chicken|lamb|meat)\b/.test(key);
+}
+
+function isExplicitDairy(key) {
+  if (/\b(peanut|almond|cashew|sunflower|soy)\s+butters?\b/.test(key)) return false;
+  if (hasTerm(key, 'cream of tartar')) return false;
+  return hasAnyTerm(key, [
+    'milk', 'buttermilk', 'cream', 'cheese', 'butter', 'yogurt', 'egg',
+    'sour cream', 'mozzarella', 'parmesan', 'cheddar', 'half and half'
+  ]);
+}
+
+function isExplicitProduce(key) {
+  return hasAnyTerm(key, [
     'lettuce', 'tomato', 'onion', 'garlic', 'bell pepper', 'spinach', 'carrot', 'celery',
     'potato', 'avocado', 'lemon', 'lime', 'apple', 'banana', 'cilantro', 'basil',
     'parsley', 'cucumber', 'zucchini', 'broccoli', 'cabbage', 'mushroom', 'berry',
     'berries', 'fruit', 'scallion', 'shallot', 'ginger', 'jalapeno'
-  ],
-  meat: [
-    'chicken', 'beef', 'pork', 'turkey', 'sausage', 'bacon', 'ham', 'shrimp',
-    'salmon', 'fish', 'steak', 'ground', 'meatball', 'lamb'
-  ],
-  dairy: [
-    'milk', 'cream', 'cheese', 'butter', 'yogurt', 'egg', 'eggs', 'sour cream',
-    'mozzarella', 'parmesan', 'cheddar', 'half-and-half'
-  ],
-  frozen: ['frozen'],
-  bakery: ['bread', 'bun', 'buns', 'tortilla', 'roll', 'rolls', 'pita', 'bagel']
-};
+  ]);
+}
+
+function isExplicitBakery(key) {
+  return hasAnyTerm(key, ['bread', 'bun', 'tortilla', 'roll', 'pita', 'bagel']);
+}
+
+function isFrozenItem(key) {
+  if (!/\bfrozen\b/.test(key)) return false;
+  if (key.includes(';')) return false;
+  return true;
+}
+
+function classifyIngredient(item) {
+  const key = ingredientKey(item);
+  if (!key) return { section: 'pantry', explicit: false };
+  if (isFrozenItem(key)) return { section: 'frozen', explicit: true };
+  if (isExplicitPantry(key)) return { section: 'pantry', explicit: true };
+  if (isExplicitMeat(key)) return { section: 'meat', explicit: true };
+  if (isExplicitDairy(key)) return { section: 'dairy', explicit: true };
+  if (isExplicitProduce(key)) return { section: 'produce', explicit: true };
+  if (isExplicitBakery(key)) return { section: 'bakery', explicit: true };
+  return { section: 'pantry', explicit: false };
+}
 
 function guessIngredientSection(item) {
-  const key = String(item || '').toLowerCase();
-  if (!key) return 'pantry';
-  if (/\bfrozen\b/.test(key)) return 'frozen';
-  const order = ['meat', 'dairy', 'produce', 'bakery', 'frozen'];
-  for (const section of order) {
-    if ((SECTION_KEYWORDS[section] || []).some((word) => {
-      const re = new RegExp(`\\b${word.replace(/[.*+?^${}()|[\\]\\]/g, '\\$&')}\\b`, 'i');
-      return re.test(key);
-    })) return section;
+  return classifyIngredient(item).section;
+}
+
+function sectionForGrocery(item, stored) {
+  const result = classifyIngredient(item);
+  if (result.explicit) return result.section;
+  if (C.MEAL_SECTIONS.includes(stored)) return stored;
+  return result.section;
+}
+
+function normalizeIngredientText(raw) {
+  let line = String(raw || '');
+  UNICODE_FRACTIONS.forEach(([ch, ascii]) => {
+    const glyph = ch.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    line = line.replace(new RegExp(`(\\d)\\s*${glyph}`, 'g'), `$1 ${ascii}`);
+    line = line.replace(new RegExp(glyph, 'g'), ascii);
+  });
+  line = line.replace(new RegExp(`(\\d)(${GLUED_FRACTION})\\b`, 'g'), '$1 $2');
+  return line.replace(/\s+/g, ' ').trim();
+}
+
+function repairStoredIngredient(ing) {
+  let item = normalizeIngredientText(ing && ing.item);
+  let qty = normalizeIngredientText(ing && ing.qty);
+  const split = item.match(/^(?:to|–|—|-)\s+(\d+(?:\s+\d+\/\d+)?|\d+\/\d+)\b\s*(.*)$/i);
+  if (split && /^\d+(?:\s+\d+\/\d+)?$/.test(qty)) {
+    const rest = split[2];
+    const unitMatch = rest.match(/^(sprigs?|inches?|ounces?|cups?|tablespoons?|teaspoons?|tbsp|tsp|pounds?|lbs?|cloves?|cans?)\b\s*(.*)$/i);
+    if (unitMatch) {
+      qty = `${qty} to ${split[1]} ${unitMatch[1]}`;
+      item = unitMatch[2];
+    } else {
+      qty = `${qty} to ${split[1]}`;
+      item = rest;
+    }
   }
-  return 'pantry';
+  return {
+    item,
+    qty,
+    section: ing && ing.section
+  };
+}
+
+function isQtyToken(token) {
+  return /^(?:\d+\/\d+|\d+\.\d+|\d+)(?:-\d+(?:\/\d+)?)?$/.test(token);
+}
+
+function readQtyAtom(tokens, index) {
+  if (index >= tokens.length || !isQtyToken(tokens[index])) return null;
+  const token = tokens[index];
+  if (/^\d+$/.test(token) && index + 1 < tokens.length && /^\d+\/\d+$/.test(tokens[index + 1])) {
+    return { text: `${token} ${tokens[index + 1]}`, next: index + 2 };
+  }
+  return { text: token, next: index + 1 };
 }
 
 function parseIngredientLine(raw) {
-  let line = String(raw || '')
-    .replace(/[\u00bc]/g, '1/4')
-    .replace(/[\u00bd]/g, '1/2')
-    .replace(/[\u00be]/g, '3/4')
-    .replace(/[\u2153]/g, '1/3')
-    .replace(/[\u2154]/g, '2/3')
-    .replace(/\s+/g, ' ')
-    .trim()
-    .replace(/^[•\-\*\u2022]+\s*/, '');
+  const line = normalizeIngredientText(raw).replace(/^[•*\u2022]+\s*/, '').replace(/^-\s+/, '');
   if (!line) return null;
 
   const tokens = line.split(' ');
   const qtyParts = [];
   let i = 0;
-  const isNumber = (t) => /^(?:\d+\/\d+|\d+\.\d+|\d+)(?:-\d+(?:\/\d+)?)?$/.test(t);
-  while (i < tokens.length && isNumber(tokens[i])) {
-    qtyParts.push(tokens[i]);
-    i += 1;
-  }
-  if (i < tokens.length) {
-    const unit = tokens[i].replace(/[.,]$/, '').toLowerCase();
-    if (INGREDIENT_UNITS.has(unit)) {
-      qtyParts.push(tokens[i].replace(/[.,]$/, ''));
-      i += 1;
-      if (tokens[i] && tokens[i].toLowerCase() === 'of') {
-        qtyParts.push(tokens[i]);
+  const first = readQtyAtom(tokens, 0);
+  if (first) {
+    let qtyText = first.text;
+    i = first.next;
+    if (i < tokens.length && /^to$/i.test(tokens[i].replace(/[.,]$/, ''))) {
+      const second = readQtyAtom(tokens, i + 1);
+      if (second) {
+        qtyText = `${qtyText} to ${second.text}`;
+        i = second.next;
+      }
+    }
+    qtyParts.push(qtyText);
+    if (i < tokens.length) {
+      const unit = tokens[i].replace(/[.,]$/, '').toLowerCase();
+      if (INGREDIENT_UNITS.has(unit)) {
+        qtyParts.push(tokens[i].replace(/[.,]$/, ''));
         i += 1;
+        if (tokens[i] && tokens[i].toLowerCase() === 'of') {
+          qtyParts.push(tokens[i]);
+          i += 1;
+        }
       }
     }
   }
@@ -1754,9 +1901,11 @@ function addIngredientRow(ing = { item: '', qty: '', section: 'pantry' }) {
     <input type="text" class="ing-qty" placeholder="Qty">
     <select class="ing-section">${opts}</select>
     <button type="button" class="btn btn-icon remove-ing" aria-label="Remove">✕</button>`;
-  row.querySelector('.ing-item').value = ing.item || '';
-  row.querySelector('.ing-qty').value = ing.qty || '';
-  row.querySelector('.ing-section').value = C.MEAL_SECTIONS.includes(ing.section) ? ing.section : 'pantry';
+  const fixedIng = repairStoredIngredient(ing);
+  row.querySelector('.ing-item').value = fixedIng.item || '';
+  row.querySelector('.ing-qty').value = fixedIng.qty || '';
+  const sectionValue = sectionForGrocery(fixedIng.item, ing.section);
+  row.querySelector('.ing-section').value = C.MEAL_SECTIONS.includes(sectionValue) ? sectionValue : 'pantry';
   row.querySelector('.remove-ing').addEventListener('click', () => {
     if (container.children.length > 1) row.remove();
   });
@@ -2108,26 +2257,28 @@ function formatQtys(qtys) {
 }
 
 function addGroceryItem(items, ing) {
-  const itemName = (ing.item || '').trim();
+  const fixed = repairStoredIngredient(ing);
+  const itemName = (fixed.item || '').trim();
   if (!itemName) return '';
   const key = groceryItemKey(itemName);
   if (!key) return '';
+  const section = sectionForGrocery(itemName, fixed.section);
   if (!items[key]) {
     items[key] = {
       key,
       item: itemName,
       originals: [itemName],
-      qtys: ing.qty ? [ing.qty] : [],
-      section: ing.section || 'other',
+      qtys: fixed.qty ? [fixed.qty] : [],
+      section,
       recipeNames: []
     };
     return key;
   }
   const row = items[key];
   if (!row.originals.includes(itemName)) row.originals.push(itemName);
-  if (ing.qty) row.qtys.push(ing.qty);
-  if ((!row.section || row.section === 'other') && ing.section && ing.section !== 'other') {
-    row.section = ing.section;
+  if (fixed.qty) row.qtys.push(fixed.qty);
+  if ((!row.section || row.section === 'other') && section && section !== 'other') {
+    row.section = section;
   }
   return key;
 }
@@ -2210,15 +2361,8 @@ function getGroceryItems(source) {
 }
 
 function guessGrocerySection(name) {
-  const key = (name || '').toLowerCase().trim();
-  if (!key) return 'other';
-  for (const recipe of state.recipes) {
-    for (const ing of recipe.ingredients || []) {
-      if ((ing.item || '').toLowerCase().trim() === key && C.MEAL_SECTIONS.includes(ing.section)) {
-        return ing.section;
-      }
-    }
-  }
+  const result = classifyIngredient(name);
+  if (result.explicit) return result.section;
   return 'other';
 }
 
@@ -2249,7 +2393,7 @@ function initGrocerySwipe() {
 
   list.addEventListener('pointerdown', (e) => {
     if (e.button != null && e.button !== 0) return;
-    if (e.target.closest('.swipe-delete')) return;
+    if (e.target.closest('input, button, a, .grocery-remove, .swipe-delete')) return;
     const wrap = e.target.closest('.swipe-row');
     const front = wrap && wrap.querySelector('.swipe-front');
     if (!wrap || !front) return;
@@ -2262,6 +2406,7 @@ function initGrocerySwipe() {
     grocerySwipe.startTx = swipeTranslate(front);
     grocerySwipe.rowWidth = wrap.offsetWidth;
     grocerySwipe.axis = null;
+    grocerySwipe.moved = false;
     grocerySwipe.dx = grocerySwipe.startTx;
     front.style.transition = 'none';
   });
@@ -2271,18 +2416,20 @@ function initGrocerySwipe() {
     const mx = e.clientX - grocerySwipe.startX;
     const my = e.clientY - grocerySwipe.startY;
     if (!grocerySwipe.axis) {
-      if (Math.abs(mx) < 10 && Math.abs(my) < 10) return;
+      if (Math.abs(mx) < 12 && Math.abs(my) < 12) return;
       grocerySwipe.axis = Math.abs(mx) > Math.abs(my) ? 'x' : 'y';
       if (grocerySwipe.axis === 'y') {
         grocerySwipe.tracking = false;
         return;
       }
-      try {
-        grocerySwipe.front.setPointerCapture(e.pointerId);
-      } catch (_) { /* ignore */ }
-      grocerySwipe.front.style.touchAction = 'none';
     }
     if (grocerySwipe.axis !== 'x') return;
+    if (Math.abs(mx) < 28 && Math.abs(grocerySwipe.startTx) < 1) return;
+    grocerySwipe.moved = true;
+    try {
+      grocerySwipe.front.setPointerCapture(e.pointerId);
+    } catch (_) { /* ignore */ }
+    grocerySwipe.front.style.touchAction = 'none';
     e.preventDefault();
     const width = grocerySwipe.rowWidth || grocerySwipe.wrap.offsetWidth || 0;
     grocerySwipe.dx = Math.min(0, Math.max(-width, grocerySwipe.startTx + mx));
@@ -2291,29 +2438,29 @@ function initGrocerySwipe() {
 
   function endGrocerySwipe() {
     if (!grocerySwipe || !grocerySwipe.tracking) return;
-    const { front, wrap, axis, dx } = grocerySwipe;
+    const { front, wrap, axis, dx, moved } = grocerySwipe;
     grocerySwipe.tracking = false;
     if (front) front.style.touchAction = 'pan-y';
-    if (axis !== 'x' || !front || !wrap) {
+    if (axis !== 'x' || !moved || !front || !wrap) {
       grocerySwipe.front = null;
       grocerySwipe.wrap = null;
       grocerySwipe.axis = null;
+      grocerySwipe.moved = false;
       return;
     }
     const width = grocerySwipe.rowWidth || wrap.offsetWidth || front.offsetWidth || 0;
     const deleteAt = Math.max(width * 0.45, 120);
+    suppressGroceryClickUntil = Date.now() + 350;
     if (dx <= -deleteAt) {
       const del = wrap.querySelector('.swipe-delete');
       grocerySwipe.front = null;
       grocerySwipe.wrap = null;
       grocerySwipe.opened = null;
       grocerySwipe.axis = null;
-      // Click before suppress so the capture-phase list handler does not swallow Delete.
+      grocerySwipe.moved = false;
       if (del) del.click();
-      suppressGroceryClickUntil = Date.now() + 350;
       return;
     }
-    suppressGroceryClickUntil = Date.now() + 350;
     if (dx < -SWIPE_DELETE_WIDTH * 0.45) {
       front.style.transition = 'transform 0.2s ease';
       front.style.transform = `translateX(${-SWIPE_DELETE_WIDTH}px)`;
@@ -2326,6 +2473,7 @@ function initGrocerySwipe() {
     grocerySwipe.front = null;
     grocerySwipe.wrap = null;
     grocerySwipe.axis = null;
+    grocerySwipe.moved = false;
   }
 
   window.addEventListener('pointerup', endGrocerySwipe);
@@ -2338,7 +2486,7 @@ function initGrocerySwipe() {
       return;
     }
     if (!grocerySwipe || !grocerySwipe.opened) return;
-    if (e.target.closest('.swipe-delete')) return;
+    if (e.target.closest('.swipe-delete, .grocery-remove, input, label')) return;
     e.preventDefault();
     e.stopPropagation();
     closeOpenGrocerySwipe();
@@ -2362,6 +2510,11 @@ function addManualGrocery() {
   input.value = '';
   renderGrocery();
   scheduleSave();
+}
+
+function groceryEntryChecked(entry) {
+  if (entry.kind === 'manual') return !!entry.checked;
+  return !!state.groceryChecked[entry.key];
 }
 
 function renderGrocery() {
@@ -2399,7 +2552,11 @@ function renderGrocery() {
   C.MEAL_SECTIONS.forEach((section) => {
     const sectionItems = grouped[section];
     if (!sectionItems.length) return;
-    sectionItems.sort((a, b) => a.item.localeCompare(b.item));
+    sectionItems.sort((a, b) => {
+      const checkedDelta = Number(groceryEntryChecked(a)) - Number(groceryEntryChecked(b));
+      if (checkedDelta) return checkedDelta;
+      return a.item.localeCompare(b.item);
+    });
     const group = document.createElement('div');
     group.className = 'grocery-section-group';
     const title = document.createElement('div');
@@ -2407,7 +2564,16 @@ function renderGrocery() {
     title.innerHTML = `<span>${C.SECTION_LABELS[section]}</span><span class="count">${sectionItems.length}</span>`;
     const itemList = document.createElement('div');
     itemList.className = 'grocery-items';
+    let markedChecked = false;
     sectionItems.forEach((entry) => {
+      const checked = groceryEntryChecked(entry);
+      if (checked && !markedChecked) {
+        markedChecked = true;
+        const note = document.createElement('div');
+        note.className = 'grocery-checked-label';
+        note.textContent = 'Checked';
+        itemList.appendChild(note);
+      }
       const wrap = document.createElement('div');
       wrap.className = 'swipe-row';
       const del = document.createElement('button');
@@ -2416,10 +2582,14 @@ function renderGrocery() {
       del.textContent = 'Delete';
       const row = document.createElement('div');
       row.className = 'swipe-front grocery-item';
+      const remove = document.createElement('button');
+      remove.type = 'button';
+      remove.className = 'grocery-remove';
+      remove.textContent = '✕';
       if (entry.kind === 'manual') {
-        const checked = !!entry.checked;
         if (checked) row.classList.add('checked');
         const id = 'm-' + String(entry.id).replace(/\W/g, '-');
+        remove.setAttribute('aria-label', `Remove ${entry.item}`);
         row.innerHTML = `
           <input type="checkbox" id="${id}" ${checked ? 'checked' : ''}>
           <label for="${id}">
@@ -2429,19 +2599,21 @@ function renderGrocery() {
         row.querySelector('input').addEventListener('change', (e) => {
           const found = state.manualItems.find((m) => m.id === entry.id);
           if (found) found.checked = e.target.checked;
-          row.classList.toggle('checked', e.target.checked);
-          scheduleSave();
-        });
-        del.addEventListener('click', () => {
-          state.manualItems = state.manualItems.filter((m) => m.id !== entry.id);
           renderGrocery();
           scheduleSave();
         });
+        const removeManual = () => {
+          state.manualItems = state.manualItems.filter((m) => m.id !== entry.id);
+          renderGrocery();
+          scheduleSave();
+        };
+        del.addEventListener('click', removeManual);
+        remove.addEventListener('click', removeManual);
       } else {
-        const checked = !!state.groceryChecked[entry.key];
         if (checked) row.classList.add('checked');
         const id = 'g-' + entry.key.replace(/\W/g, '-');
         const parts = groceryItemParts(entry);
+        remove.setAttribute('aria-label', `Remove ${parts.name}`);
         row.innerHTML = `
           <input type="checkbox" id="${id}" ${checked ? 'checked' : ''}>
           <label for="${id}">
@@ -2450,15 +2622,18 @@ function renderGrocery() {
           </label>`;
         row.querySelector('input').addEventListener('change', (e) => {
           state.groceryChecked[entry.key] = e.target.checked;
-          row.classList.toggle('checked', e.target.checked);
-          scheduleSave();
-        });
-        del.addEventListener('click', () => {
-          hideGroceryKey(entry.key);
           renderGrocery();
           scheduleSave();
         });
+        const removeRecipeItem = () => {
+          hideGroceryKey(entry.key);
+          renderGrocery();
+          scheduleSave();
+        };
+        del.addEventListener('click', removeRecipeItem);
+        remove.addEventListener('click', removeRecipeItem);
       }
+      row.appendChild(remove);
       wrap.appendChild(del);
       wrap.appendChild(row);
       itemList.appendChild(wrap);
@@ -2713,7 +2888,8 @@ async function handleAddMember(event) {
 async function handleRemoveMember(id) {
   const member = state.members.find((row) => row.id === id);
   const name = member ? member.display_name : 'this person';
-  if (!confirm(`Remove ${name}? Their recipes stay.`)) return;
+  const ok = await askConfirm(`Remove ${name}? Their recipes stay.`, { ok: 'Remove' });
+  if (!ok) return;
   try {
     await DB.removeMember(id);
     await refreshMembers();
@@ -3064,9 +3240,12 @@ function renderPointPool() {
     return;
   }
   const total = familyPointTotal();
-  const parts = state.kids.map((kid) => `${kid.display_name} ${kidPoints(kid)}`).join(' · ');
+  const chips = state.kids.map((kid) => {
+    const points = kidPoints(kid);
+    return `<span class="point-chip"><span class="point-chip-name">${escapeHtml(kid.display_name)}</span><span class="point-chip-score">${points}</span></span>`;
+  }).join('');
   pool.hidden = false;
-  pool.innerHTML = `<strong>${total} points together</strong><span>${escapeHtml(parts)}</span>`;
+  pool.innerHTML = `<strong>${total} points together</strong><div class="point-pool-kids">${chips}</div>`;
 }
 
 function renderRewardList() {
@@ -3200,7 +3379,8 @@ async function onChoreBoardClick(event) {
     if (removeKid) {
       const kid = state.kids.find((row) => row.id === removeKid.dataset.kidRemove);
       const name = kid ? kid.display_name : 'this kid';
-      if (!confirm(`Remove ${name}? Shared chores stay for the other kids.`)) return;
+      const ok = await askConfirm(`Remove ${name}? Shared chores stay for the other kids.`, { ok: 'Remove' });
+      if (!ok) return;
       await DB.removeKid(removeKid.dataset.kidRemove);
       await loadChores();
       return;
@@ -3430,9 +3610,14 @@ async function init() {
   });
   document.getElementById('previewBtn').addEventListener('click', previewSuggestions);
   document.getElementById('clearBtn').addEventListener('click', async () => {
-    document.getElementById('planMenuModal').close();
-    if (!confirm('Clear all meals for this week?')) return;
-    const clearExtras = confirm('Also clear extra grocery items?');
+    const clearMeals = await askConfirm('Clear all meals for this week?', { ok: 'Clear week' });
+    if (!clearMeals) return;
+    const clearExtras = await askConfirm('Also clear extra grocery items?', {
+      ok: 'Clear extras',
+      cancel: 'Keep extras'
+    });
+    const menu = document.getElementById('planMenuModal');
+    if (menu.open) menu.close();
     state.plan = DB.emptyPlan();
     state.snackAdds = [];
     state.groceryChecked = {};
@@ -3505,6 +3690,14 @@ async function init() {
   });
   document.querySelectorAll('.modal-close').forEach((btn) => {
     btn.addEventListener('click', () => document.getElementById(btn.dataset.close).close());
+  });
+  document.getElementById('confirmOk').addEventListener('click', () => settleConfirm(true));
+  document.getElementById('confirmCancel').addEventListener('click', () => settleConfirm(false));
+  document.getElementById('confirmDialog').addEventListener('close', () => {
+    if (!confirmResolver) return;
+    const resolve = confirmResolver;
+    confirmResolver = null;
+    resolve(false);
   });
 
   await resolveHousehold();

@@ -6,15 +6,18 @@
   const HOUSEHOLD_STORAGE_KEY = 'familyPlanner.household';
   const CODE_CHARS = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
 
-  function resetClient() {
-    client = null;
-  }
-
   function setFamilyAccess(code) {
     C.FAMILY_CODE = String(code || '')
       .trim()
       .toUpperCase();
-    resetClient();
+  }
+
+  function familyFetch(url, options) {
+    const opts = options ? { ...options } : {};
+    const headers = new Headers(opts.headers || {});
+    if (C.FAMILY_CODE) headers.set('x-family-code', C.FAMILY_CODE);
+    opts.headers = headers;
+    return global.fetch(url, opts);
   }
 
   function getClient() {
@@ -22,10 +25,14 @@
     if (!global.supabase) {
       throw new Error('Supabase SDK not loaded');
     }
-    const headers = {};
-    if (C.FAMILY_CODE) headers['x-family-code'] = C.FAMILY_CODE;
     client = global.supabase.createClient(C.SUPABASE_URL, C.SUPABASE_ANON_KEY, {
-      global: { headers }
+      global: { fetch: familyFetch },
+      auth: {
+        persistSession: false,
+        autoRefreshToken: false,
+        detectSessionInUrl: false,
+        storageKey: 'family-planner-auth'
+      }
     });
     return client;
   }
