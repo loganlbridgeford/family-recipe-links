@@ -107,15 +107,6 @@ body.is-meal-dragging .app-main {
 
 .tab-bar[hidden] { display: none !important; }
 
-.app-version {
-  margin: 14px 0 0;
-  text-align: center;
-  font-size: 0.75rem;
-  font-weight: 650;
-  letter-spacing: 0.04em;
-  color: var(--text-muted);
-}
-
 .home-grid {
   display: grid;
   grid-template-columns: 1fr 1fr;
