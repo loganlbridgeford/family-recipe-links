@@ -312,17 +312,6 @@
     return data || [];
   }
 
-  async function spotlightRecipe() {
-    const { data, error } = await getClient()
-      .from('recipes')
-      .select('id, name, category')
-      .eq('household_id', requireHouseholdId())
-      .order('name', { ascending: true })
-      .limit(1);
-    if (error) throw error;
-    return (data && data[0]) || null;
-  }
-
   async function getRecipeDetail(id) {
     const { data, error } = await getClient()
       .from('recipes')
@@ -988,7 +977,6 @@
     removeMember,
     listRecipes,
     listRecipesByIds,
-    spotlightRecipe,
     getRecipeDetail,
     addRecipe,
     updateRecipe,

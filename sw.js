@@ -1,12 +1,12 @@
-const CACHE = 'app-shell-21';
+const CACHE = 'app-shell-22';
 
 const SHELL = [
   '/',
   '/index.html',
-  '/styles.css?v=app-shell-21',
-  '/app.js?v=app-shell-21',
-  '/js/config.js?v=app-shell-21',
-  '/js/db.js?v=app-shell-21',
+  '/styles.css?v=app-shell-22',
+  '/app.js?v=app-shell-22',
+  '/js/config.js?v=app-shell-22',
+  '/js/db.js?v=app-shell-22',
   '/manifest.webmanifest',
   '/icons/icon.svg',
   '/icons/apple-touch-icon.png'

@@ -35,7 +35,6 @@ const state = {
   tasks: [],
   todoView: 'kids',
   choresError: '',
-  homeRecipeId: null,
   homeSnapshot: null,
   recipesReady: false
 };
@@ -222,14 +221,7 @@ async function ensureRecipeDetail(id) {
 
 async function loadHomeRecipes() {
   const ids = collectRecipeIds(state.plan, state.snackAdds);
-  const [linked, spotlight] = await Promise.all([
-    DB.listRecipesByIds(ids),
-    DB.spotlightRecipe()
-  ]);
-  mergeRecipeRows(linked);
-  if (!spotlight) return;
-  mergeRecipeRows([spotlight]);
-  if (!state.homeRecipeId) state.homeRecipeId = spotlight.id;
+  mergeRecipeRows(await DB.listRecipesByIds(ids));
 }
 
 function nudgeWaitingWorker(registration) {
@@ -544,10 +536,7 @@ function prefersReducedMotion() {
 function setTab(name) {
   const app = document.querySelector('.app');
   const enteringHome = name === 'home' && !(app && app.classList.contains('is-home'));
-  if (enteringHome) {
-    if (state.recipesReady) state.homeRecipeId = null;
-    state.homeSnapshot = null;
-  }
+  if (enteringHome) state.homeSnapshot = null;
   const apply = () => {
     document.querySelectorAll('.tab').forEach((tab) => {
       const on = tab.dataset.tab === name;
@@ -615,21 +604,6 @@ async function ensureHomeSnapshot() {
   const row = await DB.getPlan(monday);
   state.homeSnapshot = snapshotFromPlanRow(monday, row);
   return state.homeSnapshot;
-}
-
-function pickHomeRecipe() {
-  if (state.homeRecipeId) {
-    const existing = getRecipe(state.homeRecipeId);
-    if (existing) return existing;
-  }
-  const list = state.recipes.filter((recipe) => recipe && recipe.name);
-  if (!list.length) {
-    state.homeRecipeId = null;
-    return null;
-  }
-  const meal = list[Math.floor(Math.random() * list.length)];
-  state.homeRecipeId = meal.id;
-  return meal;
 }
 
 function mealPreviewBits(plan, day, slot) {
@@ -730,6 +704,40 @@ function todayTile(snap) {
   return `<div class="home-tile home-tile-today"><button type="button" class="home-tile-hit" data-home-go="plan"><span class="home-kicker">Today</span><span class="home-tile-title">${escapeHtml(dateLabel)}</span></button>${lines}</div>`;
 }
 
+function openHomeTasks() {
+  return sortedTasks().filter((task) => !task.done);
+}
+
+function homeTaskRow(task) {
+  const meta = taskMeta(task);
+  const overdue = Boolean(task.due && task.due < todayISODate());
+  return `<li class="home-task${overdue ? ' is-overdue' : ''}">
+    <label class="home-task-check">
+      <input type="checkbox" data-home-task="${escapeHtml(task.id)}" aria-label="${escapeHtml(task.title)}">
+      <span>
+        <span class="home-task-title">${escapeHtml(task.title)}</span>
+        ${meta ? `<span class="home-task-meta">${escapeHtml(meta)}</span>` : ''}
+      </span>
+    </label>
+  </li>`;
+}
+
+function homeTasksTile() {
+  const shown = openHomeTasks().slice(0, 4);
+  const list = shown.length
+    ? `<ul class="home-task-list">${shown.map(homeTaskRow).join('')}</ul>`
+    : '<p class="home-task-empty">Nothing open</p>';
+  return `<div class="home-tile home-tile-tasks">
+    <span class="home-kicker">Tasks</span>
+    ${list}
+    <button type="button" class="home-task-more" data-home-go="tasks">See all</button>
+    <form class="home-task-add" id="homeAddTaskForm">
+      <input type="text" name="title" placeholder="Add a task" autocomplete="off" enterkeyhint="done" aria-label="Task" required>
+      <button type="submit" class="btn btn-primary">Add</button>
+    </form>
+  </div>`;
+}
+
 function paintHome(snap) {
   const grid = document.getElementById('homeGrid');
   if (!grid) return;
@@ -737,11 +745,6 @@ function paintHome(snap) {
   const pointsEl = document.getElementById('homePoints');
   if (pointsEl) pointsEl.textContent = `${points} point${points === 1 ? '' : 's'}`;
   const pointLabel = `${points} point${points === 1 ? '' : 's'}`;
-  const recipe = pickHomeRecipe();
-  const photo = recipe ? safeHttpUrl(recipe.photo_url) : '';
-  const recipeBody = recipe
-    ? `${photo ? `<img class="home-tile-photo" src="${escapeHtml(photo)}" alt="">` : ''}<span class="home-tile-title">${escapeHtml(recipe.name)}</span><span class="home-note">${escapeHtml(recipe.category || 'Recipe')}</span>`
-    : '<span class="home-tile-title">Add a recipe</span><span class="home-note">Nothing in the kitchen yet.</span>';
   const groceryLines = snap ? uncheckedGroceryLines(snap) : [];
   const groceryShown = groceryLines.slice(0, 4);
   const groceryBody = groceryShown.length
@@ -757,7 +760,7 @@ function paintHome(snap) {
       : `<span class="home-points-figure">${escapeHtml(pointLabel)}</span><span class="home-line">${chores.due} due today</span>${taskLine}<span class="home-note">${escapeHtml(waitingNote)}</span>`;
   grid.innerHTML = [
     todayTile(snap),
-    homeTile('Recipe', recipeBody, recipe ? 'recipe' : 'recipes'),
+    homeTasksTile(),
     homeTile('Grocery', groceryBody, 'grocery'),
     homeTile('To Do', choreBody, 'chores')
   ].join('');
@@ -3744,13 +3747,40 @@ async function init() {
       });
       return;
     }
-    if (go === 'recipe') {
-      const meal = state.homeRecipeId && getRecipe(state.homeRecipeId);
-      if (meal) openRecipeCard(meal.id, { fromLibrary: true });
-      else setTab('recipes');
+    if (go === 'tasks') {
+      state.todoView = 'tasks';
+      applyTodoView();
+      setTab('chores');
       return;
     }
-    if (go === 'recipes' || go === 'chores') setTab(go);
+    if (go === 'chores') setTab(go);
+  });
+  document.getElementById('homeGrid').addEventListener('change', async (event) => {
+    const box = event.target.closest('[data-home-task]');
+    if (!box) return;
+    try {
+      await DB.setTaskDone(box.dataset.homeTask, box.checked);
+      await loadChores();
+    } catch (err) {
+      console.error(err);
+      box.checked = false;
+      showToast('Could not update that task.');
+    }
+  });
+  document.getElementById('homeGrid').addEventListener('submit', async (event) => {
+    const form = event.target.closest('#homeAddTaskForm');
+    if (!form) return;
+    event.preventDefault();
+    const title = form.elements.title.value.trim();
+    if (!title) return;
+    try {
+      await DB.addTask({ title, due: '', person: '' });
+      form.elements.title.value = '';
+      await loadChores();
+    } catch (err) {
+      console.error(err);
+      showToast('Could not add that task.');
+    }
   });
   document.getElementById('addMemberForm').addEventListener('submit', handleAddMember);
   document.getElementById('memberList').addEventListener('click', (event) => {
