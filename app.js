@@ -1,4 +1,5 @@
 /* global APP_CONFIG, DB */
+globalThis.SHELL_MARKER = 'picked-up';
 const C = APP_CONFIG;
 
 const state = {
