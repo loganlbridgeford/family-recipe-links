@@ -120,7 +120,7 @@ body.is-meal-dragging .app-main {
 
 .home-grid {
   display: grid;
-  grid-template-columns: 1fr 1fr;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
   gap: 12px;
   align-items: stretch;
 }
@@ -144,6 +144,7 @@ body.is-meal-dragging .app-main {
   border-radius: var(--radius);
   box-shadow: var(--shadow);
   cursor: pointer;
+  min-width: 0;
 }
 
 button.home-tile:active { transform: scale(0.98); }
@@ -275,11 +276,14 @@ button.home-tile:active { transform: scale(0.98); }
 .home-task-add {
   display: flex;
   gap: 6px;
+  width: 100%;
+  min-width: 0;
   margin-top: auto;
 }
 
 .home-task-add input {
-  flex: 1;
+  flex: 1 1 0;
+  width: 0;
   min-width: 0;
   min-height: 40px;
   padding: 8px 10px;
@@ -291,9 +295,13 @@ button.home-tile:active { transform: scale(0.98); }
 }
 
 .home-task-add .btn {
-  min-width: 0;
+  flex: 0 0 40px;
+  width: 40px;
+  min-width: 40px;
   min-height: 40px;
-  padding: 8px 10px;
+  padding: 0;
+  font-size: 1.25rem;
+  line-height: 1;
 }
 
 .home-line {

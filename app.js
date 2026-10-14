@@ -732,8 +732,8 @@ function homeTasksTile() {
     ${list}
     <button type="button" class="home-task-more" data-home-go="tasks">See all</button>
     <form class="home-task-add" id="homeAddTaskForm">
-      <input type="text" name="title" placeholder="Add a task" autocomplete="off" enterkeyhint="done" aria-label="Task" required>
-      <button type="submit" class="btn btn-primary">Add</button>
+      <input type="text" name="title" size="8" placeholder="Add a task" autocomplete="off" enterkeyhint="done" aria-label="Task" required>
+      <button type="submit" class="btn btn-primary" aria-label="Add task">+</button>
     </form>
   </div>`;
 }
