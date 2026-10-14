@@ -46,20 +46,17 @@ async function networkFirst(request) {
   }
 }
 
-async function cacheFirst(event, request) {
+async function freshShell(request) {
   const cache = await caches.open(CACHE);
-  const cached = await cache.match(request);
-  const refresh = fetch(request).then((response) => {
-    if (response && response.ok) return cache.put(request, response.clone()).then(() => response);
+  try {
+    const response = await fetch(request);
+    if (response && response.ok) await cache.put(request, response.clone());
     return response;
-  }).catch(() => null);
-  if (cached) {
-    event.waitUntil(refresh);
-    return cached;
+  } catch (err) {
+    const cached = await cache.match(request);
+    if (cached) return cached;
+    throw err;
   }
-  const response = await refresh;
-  if (response) return response;
-  return new Response('', { status: 503, statusText: 'Offline' });
 }
 
 self.addEventListener('install', (event) => {
@@ -92,6 +89,6 @@ self.addEventListener('fetch', (event) => {
     return;
   }
   if (isShellAsset(url)) {
-    event.respondWith(cacheFirst(event, request));
+    event.respondWith(freshShell(request));
   }
 });
