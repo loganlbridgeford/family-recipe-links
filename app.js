@@ -232,9 +232,21 @@ async function loadHomeRecipes() {
   if (!state.homeRecipeId) state.homeRecipeId = spotlight.id;
 }
 
+function nudgeWaitingWorker(registration) {
+  if (registration.waiting) registration.waiting.postMessage('skip-waiting');
+}
+
 function registerShellWorker() {
   if (!('serviceWorker' in navigator)) return;
   navigator.serviceWorker.register('/sw.js').then((registration) => {
+    nudgeWaitingWorker(registration);
+    registration.addEventListener('updatefound', () => {
+      const installing = registration.installing;
+      if (!installing) return;
+      installing.addEventListener('statechange', () => {
+        if (installing.state === 'installed') nudgeWaitingWorker(registration);
+      });
+    });
     registration.update();
   }).catch((err) => {
     console.error(err);
