@@ -32,6 +32,8 @@ const state = {
   redemptions: [],
   redeemRewardId: null,
   choreView: 'chores',
+  tasks: [],
+  todoView: 'kids',
   choresError: '',
   homeRecipeId: null,
   homeSnapshot: null
@@ -540,6 +542,16 @@ function uncheckedGroceryLines(source) {
   return lines;
 }
 
+function tasksDueCount() {
+  const today = todayISODate();
+  return state.tasks.filter((task) => !task.done && task.due && task.due <= today).length;
+}
+
+function tasksDueLine() {
+  const count = tasksDueCount();
+  return `<span class="home-line">${count} task${count === 1 ? '' : 's'} due</span>`;
+}
+
 function choreHomeStats() {
   if (state.choresError) return { due: 0, waiting: 0, ready: false, error: true };
   if (!state.kids.length) return { due: 0, waiting: 0, ready: false };
@@ -614,16 +626,17 @@ function paintHome(snap) {
     : '<span class="home-tile-title">List is clear</span>';
   const chores = choreHomeStats();
   const waitingNote = chores.waiting ? `${chores.waiting} waiting for approval` : 'None waiting';
+  const taskLine = tasksDueLine();
   const choreBody = chores.error
     ? `<span class="home-points-figure">${escapeHtml(pointLabel)}</span><span class="home-tile-title">Could not load chores</span>`
     : !chores.ready
-      ? `<span class="home-points-figure">${escapeHtml(pointLabel)}</span><span class="home-tile-title">Set up chores</span>`
-      : `<span class="home-points-figure">${escapeHtml(pointLabel)}</span><span class="home-line">${chores.due} due today</span><span class="home-note">${escapeHtml(waitingNote)}</span>`;
+      ? `<span class="home-points-figure">${escapeHtml(pointLabel)}</span><span class="home-tile-title">Set up chores</span>${taskLine}`
+      : `<span class="home-points-figure">${escapeHtml(pointLabel)}</span><span class="home-line">${chores.due} due today</span>${taskLine}<span class="home-note">${escapeHtml(waitingNote)}</span>`;
   grid.innerHTML = [
     todayTile(snap),
     homeTile('Recipe', recipeBody, recipe ? 'recipe' : 'recipes'),
     homeTile('Grocery', groceryBody, 'grocery'),
-    homeTile('Chores', choreBody, 'chores')
+    homeTile('To Do', choreBody, 'chores')
   ].join('');
 }
 
@@ -2923,6 +2936,7 @@ async function refreshMembers() {
   state.members = members && members.length ? members : [{ display_name: 'Me', sort_order: 1 }];
   populateMemberSelect();
   renderMemberList();
+  renderTaskPersonSelect();
 }
 
 async function handleAddMember(event) {
@@ -3234,6 +3248,7 @@ async function loadChores() {
     state.approvedChecks = await DB.listApprovedChoreChecks();
     state.rewards = await DB.listRewards();
     state.redemptions = await DB.listRedemptions();
+    state.tasks = await DB.listTasks();
     state.choresError = '';
   } catch (err) {
     console.error(err);
@@ -3348,12 +3363,92 @@ function renderRewardList() {
   }).join('');
 }
 
+function applyTodoView() {
+  const view = state.todoView === 'tasks' ? 'tasks' : 'kids';
+  document.querySelectorAll('[data-todo-view]').forEach((tab) => {
+    const on = tab.dataset.todoView === view;
+    tab.classList.toggle('active', on);
+    tab.setAttribute('aria-selected', on ? 'true' : 'false');
+  });
+  const kids = document.getElementById('todoKids');
+  const tasks = document.getElementById('todoTasks');
+  if (kids) kids.hidden = view !== 'kids';
+  if (tasks) tasks.hidden = view !== 'tasks';
+}
+
+function renderTaskPersonSelect() {
+  const sel = document.getElementById('taskPerson');
+  if (!sel) return;
+  const current = sel.value;
+  const names = [];
+  const seen = new Set();
+  state.members.forEach((member) => {
+    const name = String(member.display_name || '').trim();
+    const key = name.toLowerCase();
+    if (!name || seen.has(key)) return;
+    seen.add(key);
+    names.push(name);
+  });
+  sel.innerHTML = `<option value="">Anyone</option>${names.map((name) => `<option value="${escapeHtml(name)}">${escapeHtml(name)}</option>`).join('')}`;
+  if (current && [...sel.options].some((opt) => opt.value === current)) sel.value = current;
+}
+
+function formatTaskDue(due) {
+  if (!due) return '';
+  const day = parseDate(due);
+  if (due === todayISODate()) return 'Due today';
+  return `Due ${day.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}`;
+}
+
+function sortedTasks() {
+  return state.tasks.slice().sort((a, b) => {
+    if (a.done !== b.done) return a.done ? 1 : -1;
+    if (a.due && b.due && a.due !== b.due) return a.due < b.due ? -1 : 1;
+    if (!a.due !== !b.due) return a.due ? -1 : 1;
+    return String(a.created_at || '').localeCompare(String(b.created_at || ''));
+  });
+}
+
+function taskMeta(task) {
+  const due = formatTaskDue(task.due);
+  if (due && task.person) return `${due} · ${task.person}`;
+  return due || task.person || '';
+}
+
+function renderTaskList() {
+  const list = document.getElementById('taskList');
+  if (!list) return;
+  renderTaskPersonSelect();
+  if (state.choresError) {
+    list.innerHTML = '';
+    return;
+  }
+  if (!state.tasks.length) {
+    list.innerHTML = '<p class="hint">Nothing to do yet.</p>';
+    return;
+  }
+  list.innerHTML = sortedTasks().map((task) => {
+    const meta = taskMeta(task);
+    return `<div class="task-row${task.done ? ' is-done' : ''}">
+      <label class="task-check">
+        <input type="checkbox" data-task-toggle="${escapeHtml(task.id)}" ${task.done ? 'checked' : ''}>
+        <span>
+          <span class="task-title">${escapeHtml(task.title)}</span>
+          ${meta ? `<span class="task-meta">${escapeHtml(meta)}</span>` : ''}
+        </span>
+      </label>
+      <button type="button" class="btn btn-ghost btn-sm" data-task-remove="${escapeHtml(task.id)}" aria-label="Remove task">✕</button>
+    </div>`;
+  }).join('');
+}
+
 function renderChoreBoard() {
   const board = document.getElementById('choreBoard');
   if (!board) return;
   renderChoreKidPicker();
   renderPointPool();
   renderRewardList();
+  renderTaskList();
   if (state.choresError) {
     board.innerHTML = '';
     return;
@@ -3515,6 +3610,12 @@ async function init() {
   });
   document.getElementById('prevWeek').addEventListener('click', () => changeWeek(-7));
   document.getElementById('nextWeek').addEventListener('click', () => changeWeek(7));
+  document.querySelectorAll('[data-todo-view]').forEach((button) => {
+    button.addEventListener('click', () => {
+      state.todoView = button.dataset.todoView === 'tasks' ? 'tasks' : 'kids';
+      applyTodoView();
+    });
+  });
   document.querySelectorAll('[data-chore-view]').forEach((button) => {
     button.addEventListener('click', () => {
       state.choreView = button.dataset.choreView;
@@ -3526,6 +3627,47 @@ async function init() {
       document.getElementById('choreWork').hidden = state.choreView !== 'chores';
       document.getElementById('rewardBank').hidden = state.choreView !== 'bank';
     });
+  });
+  document.getElementById('addTaskForm').addEventListener('submit', async (event) => {
+    event.preventDefault();
+    const form = event.target;
+    const title = form.elements.title.value.trim();
+    if (!title) return;
+    try {
+      await DB.addTask({
+        title,
+        due: form.elements.due.value,
+        person: form.elements.person.value
+      });
+      form.elements.title.value = '';
+      await loadChores();
+    } catch (err) {
+      console.error(err);
+      showToast('Could not add that task.');
+    }
+  });
+  document.getElementById('taskList').addEventListener('change', async (event) => {
+    const box = event.target.closest('[data-task-toggle]');
+    if (!box) return;
+    try {
+      await DB.setTaskDone(box.dataset.taskToggle, box.checked);
+      await loadChores();
+    } catch (err) {
+      console.error(err);
+      box.checked = !box.checked;
+      showToast('Could not update that task.');
+    }
+  });
+  document.getElementById('taskList').addEventListener('click', async (event) => {
+    const remove = event.target.closest('[data-task-remove]');
+    if (!remove) return;
+    try {
+      await DB.removeTask(remove.dataset.taskRemove);
+      await loadChores();
+    } catch (err) {
+      console.error(err);
+      showToast('Could not remove that task.');
+    }
   });
   document.getElementById('addKidForm').addEventListener('submit', async (event) => {
     event.preventDefault();

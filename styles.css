@@ -1203,6 +1203,60 @@ textarea { min-height: unset; }
   background: var(--primary);
   color: #fff;
 }
+#todoKids[hidden],
+#todoTasks[hidden] { display: none; }
+.task-add {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: center;
+  margin-bottom: 12px;
+}
+.task-add input,
+.task-add select {
+  width: auto;
+  padding: 12px 13px;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  font-size: 1rem;
+  font-family: inherit;
+  background: #fff;
+  min-height: var(--tap);
+  min-width: 0;
+}
+.task-add input[type="text"] { flex: 1 1 100%; }
+.task-add input[type="date"],
+.task-add select { flex: 1 1 8rem; }
+.task-add .btn { flex: 0 0 auto; }
+.task-row {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  min-height: var(--tap);
+  padding: 10px 0;
+  border-top: 1px solid var(--border);
+}
+.task-check {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  flex: 1;
+  min-width: 0;
+}
+.task-check input[type="checkbox"] {
+  width: 22px;
+  height: 22px;
+  margin-top: 2px;
+  accent-color: var(--primary);
+  flex-shrink: 0;
+}
+.task-title { display: block; font-weight: 650; }
+.task-meta { display: block; font-size: 0.78rem; color: var(--text-muted); margin-top: 2px; }
+.task-row.is-done .task-title {
+  text-decoration: line-through;
+  text-decoration-thickness: 2px;
+  color: var(--text-muted);
+}
 .chore-sheet { }
 .reward-bank {
   background: #2c2416;
