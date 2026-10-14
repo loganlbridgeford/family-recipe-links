@@ -361,15 +361,39 @@ function applyPlanRow(row) {
   state.planUpdatedAt = (row && row.updated_at) || null;
 }
 
-async function loadWeek() {
-  const row = await DB.getPlan(state.weekStart);
+let weekEpoch = 0;
+
+async function showWeek(weekStart) {
+  const epoch = ++weekEpoch;
+  const row = await DB.getPlan(weekStart);
+  if (epoch !== weekEpoch) return;
+  const thisMonday = getMondayISO(new Date());
+  if (state.weekStart === thisMonday || weekStart === thisMonday) state.homeSnapshot = null;
+  state.weekStart = weekStart;
   applyPlanRow(row);
+  paintOpenWeek();
+}
+
+async function ensureWeek(weekStart) {
+  if (state.weekStart === weekStart) return;
+  await showWeek(weekStart);
+}
+
+function paintOpenWeek() {
   renderWeekLabel();
   renderCalendar();
   renderGrocery();
   renderRecipeList();
   renderSnackList();
-  renderHomeIfVisible();
+}
+
+async function loadWeek() {
+  const weekStart = state.weekStart;
+  const epoch = ++weekEpoch;
+  const row = await DB.getPlan(weekStart);
+  if (epoch !== weekEpoch || state.weekStart !== weekStart) return;
+  applyPlanRow(row);
+  paintOpenWeek();
 }
 
 let refetchTimer = null;
@@ -384,16 +408,14 @@ async function refetchOpenWeek() {
   const gate = document.getElementById('familyGate');
   if (gate && gate.open) return;
   if (state.saveTimer || state.saving) return;
+  const weekStart = state.weekStart;
+  const epoch = ++weekEpoch;
   try {
-    const row = await DB.getPlan(state.weekStart);
+    const row = await DB.getPlan(weekStart);
+    if (epoch !== weekEpoch || state.weekStart !== weekStart) return;
     applyPlanRow(row);
-    renderWeekLabel();
-    renderCalendar();
-    renderGrocery();
-    renderRecipeList();
-    renderSnackList();
     if (getMondayISO(new Date()) !== state.weekStart) state.homeSnapshot = null;
-    renderHomeIfVisible();
+    paintOpenWeek();
   } catch (err) {
     console.error(err);
   }
@@ -541,6 +563,38 @@ function homeTile(kicker, body, go) {
   return `<button type="button" class="home-tile" data-home-go="${go}"><span class="home-kicker">${kicker}</span>${body}</button>`;
 }
 
+function todayMealLine(plan, day, slot) {
+  const bits = mealPreviewBits(plan, day, slot);
+  return {
+    label: bits.label,
+    text: bits.text,
+    empty: bits.empty,
+    control: bits.empty ? { kind: 'slot', slot } : { kind: 'go', go: 'plan' }
+  };
+}
+
+function todayLineMarkup(line) {
+  const body = `<span class="home-line-slot">${escapeHtml(line.label)}</span><span class="home-line-name${line.empty ? ' empty' : ''}">${escapeHtml(line.text)}</span>`;
+  switch (line.control.kind) {
+    case 'slot':
+      return `<button type="button" class="home-line" data-home-slot="${escapeHtml(line.control.slot)}">${body}</button>`;
+    case 'go':
+      return `<button type="button" class="home-line" data-home-go="${escapeHtml(line.control.go)}">${body}</button>`;
+    default: {
+      const unexpected = line.control;
+      throw new Error('Unknown home line control ' + unexpected.kind);
+    }
+  }
+}
+
+function todayTile(snap) {
+  const day = snap ? dayKeyForWeek(snap.weekStart) : null;
+  const dayDate = snap && day ? getDayDate(snap.weekStart, C.DAYS.indexOf(day)) : new Date();
+  const dateLabel = dayDate.toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' });
+  const lines = C.MEAL_SLOTS.map((slot) => todayLineMarkup(todayMealLine(snap && snap.plan, day, slot))).join('');
+  return `<div class="home-tile home-tile-today"><button type="button" class="home-tile-hit" data-home-go="plan"><span class="home-kicker">Today</span><span class="home-tile-title">${escapeHtml(dateLabel)}</span></button>${lines}</div>`;
+}
+
 function paintHome(snap) {
   const grid = document.getElementById('homeGrid');
   if (!grid) return;
@@ -548,13 +602,6 @@ function paintHome(snap) {
   const pointsEl = document.getElementById('homePoints');
   if (pointsEl) pointsEl.textContent = `${points} point${points === 1 ? '' : 's'}`;
   const pointLabel = `${points} point${points === 1 ? '' : 's'}`;
-  const day = snap ? dayKeyForWeek(snap.weekStart) : null;
-  const dayDate = snap && day ? getDayDate(snap.weekStart, C.DAYS.indexOf(day)) : new Date();
-  const dateLabel = dayDate.toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' });
-  const meals = C.MEAL_SLOTS.map((slot) => {
-    const bit = mealPreviewBits(snap && snap.plan, day, slot);
-    return `<span class="home-line"><span class="home-line-slot">${escapeHtml(bit.label)}</span><span class="home-line-name${bit.empty ? ' empty' : ''}">${escapeHtml(bit.text)}</span></span>`;
-  }).join('');
   const recipe = pickHomeRecipe();
   const photo = recipe ? safeHttpUrl(recipe.photo_url) : '';
   const recipeBody = recipe
@@ -573,7 +620,7 @@ function paintHome(snap) {
       ? `<span class="home-points-figure">${escapeHtml(pointLabel)}</span><span class="home-tile-title">Set up chores</span>`
       : `<span class="home-points-figure">${escapeHtml(pointLabel)}</span><span class="home-line">${chores.due} due today</span><span class="home-note">${escapeHtml(waitingNote)}</span>`;
   grid.innerHTML = [
-    homeTile('Today', `<span class="home-tile-title">${escapeHtml(dateLabel)}</span>${meals}`, 'plan'),
+    todayTile(snap),
     homeTile('Recipe', recipeBody, recipe ? 'recipe' : 'recipes'),
     homeTile('Grocery', groceryBody, 'grocery'),
     homeTile('Chores', choreBody, 'chores')
@@ -601,13 +648,28 @@ function renderHomeIfVisible() {
 }
 
 async function openHomeOnCurrentWeek(tab) {
-  const monday = getMondayISO(new Date());
-  if (state.weekStart !== monday) {
-    state.weekStart = monday;
-    state.homeSnapshot = null;
-    await loadWeek();
-  }
+  await ensureWeek(getMondayISO(new Date()));
   setTab(tab);
+}
+
+let slotEpoch = 0;
+
+async function openTodaySlot(slot) {
+  if (!C.MEAL_SLOTS.includes(slot)) return;
+  const modal = document.getElementById('pickerModal');
+  if (modal && modal.open) return;
+  const epoch = ++slotEpoch;
+  const monday = getMondayISO(new Date());
+  await ensureWeek(monday);
+  if (epoch !== slotEpoch) return;
+  if (state.weekStart !== monday) return;
+  const day = dayKeyForWeek(state.weekStart);
+  if (!day) return;
+  if (!mealPreviewBits(state.plan, day, slot).empty) {
+    renderHomeIfVisible();
+    return;
+  }
+  openPicker(day, slot);
 }
 
 /* ---------- Calendar ---------- */
@@ -757,6 +819,7 @@ function renderCalendar() {
     grid.appendChild(block);
   });
   renderTonight();
+  renderHomeIfVisible();
 }
 
 function openPicker(day, slot, opts = {}) {
@@ -3402,8 +3465,7 @@ async function onChoreBoardClick(event) {
 async function changeWeek(offsetDays) {
   const d = parseDate(state.weekStart);
   d.setDate(d.getDate() + offsetDays);
-  state.weekStart = getMondayISO(d);
-  await loadWeek();
+  await showWeek(getMondayISO(d));
 }
 
 async function init() {
@@ -3419,6 +3481,14 @@ async function init() {
     btn.addEventListener('click', () => setTab('home'));
   });
   document.getElementById('homeGrid').addEventListener('click', (event) => {
+    const slotBtn = event.target.closest('[data-home-slot]');
+    if (slotBtn) {
+      openTodaySlot(slotBtn.dataset.homeSlot).catch((err) => {
+        console.error(err);
+        showToast('Could not open that meal.');
+      });
+      return;
+    }
     const tile = event.target.closest('[data-home-go]');
     if (!tile) return;
     const go = tile.dataset.homeGo;
@@ -3575,8 +3645,7 @@ async function init() {
     }
   });
   document.getElementById('todayBtn').addEventListener('click', async () => {
-    state.weekStart = getMondayISO(new Date());
-    await loadWeek();
+    await showWeek(getMondayISO(new Date()));
   });
   document.getElementById('planMenuBtn').addEventListener('click', () => {
     renderHouseholdChrome();

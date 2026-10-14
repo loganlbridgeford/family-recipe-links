@@ -146,7 +146,46 @@ body.is-meal-dragging .app-main {
   cursor: pointer;
 }
 
-.home-tile:active { transform: scale(0.98); }
+button.home-tile:active { transform: scale(0.98); }
+
+.home-tile-today {
+  padding: 0;
+  cursor: default;
+}
+
+.home-tile-today .home-tile-hit,
+.home-tile-today .home-line {
+  appearance: none;
+  -webkit-appearance: none;
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  width: 100%;
+  margin: 0;
+  border: 0;
+  background: transparent;
+  text-align: left;
+  font-family: inherit;
+  color: inherit;
+  cursor: pointer;
+}
+
+.home-tile-today .home-tile-hit {
+  gap: 8px;
+  padding: 14px 14px 0;
+}
+
+.home-tile-today .home-line {
+  min-height: 44px;
+  padding: 0 14px;
+}
+
+.home-tile-today .home-line:last-child {
+  padding-bottom: 14px;
+}
+
+.home-tile-hit:active,
+.home-tile-today .home-line:active { transform: scale(0.98); }
 
 .home-kicker {
   font-size: 0.72rem;
