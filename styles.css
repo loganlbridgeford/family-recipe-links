@@ -105,6 +105,17 @@ body.is-meal-dragging .app-main {
 
 .home-btn { flex: 0 0 auto; }
 
+#header-home h1 {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+#header-home [data-share-invite] {
+  flex: 0 0 auto;
+  white-space: nowrap;
+}
+
 .tab-bar[hidden] { display: none !important; }
 
 .home-grid {

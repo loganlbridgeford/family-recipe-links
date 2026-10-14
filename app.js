@@ -2971,6 +2971,12 @@ async function shareInviteLink() {
   await copyInviteLink();
 }
 
+async function onShareInviteClick() {
+  const modal = document.getElementById('planMenuModal');
+  if (modal && modal.open) modal.close();
+  await shareInviteLink();
+}
+
 async function resolveHousehold() {
   const params = new URLSearchParams(window.location.search);
   const fromUrl = params.get('family');
@@ -3579,9 +3585,10 @@ async function init() {
   document.getElementById('copyInviteBtn').addEventListener('click', async () => {
     await copyInviteLink();
   });
-  document.getElementById('shareInviteBtn').addEventListener('click', async () => {
-    document.getElementById('planMenuModal').close();
-    await shareInviteLink();
+  document.querySelectorAll('[data-share-invite]').forEach((btn) => {
+    btn.addEventListener('click', () => {
+      onShareInviteClick();
+    });
   });
   document.getElementById('familyGate').addEventListener('cancel', (e) => e.preventDefault());
   document.getElementById('gateJoinBtn').addEventListener('click', handleGateJoin);
