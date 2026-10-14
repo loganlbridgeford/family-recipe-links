@@ -288,14 +288,50 @@
     if (error) throw error;
   }
 
+  const RECIPE_LIST_COLUMNS = 'id, name, url, category, added_by, notes, ingredients, meal_types, tags, prep_minutes, servings';
+
   async function listRecipes() {
     const { data, error } = await getClient()
       .from('recipes')
-      .select('*')
+      .select(RECIPE_LIST_COLUMNS)
       .eq('household_id', requireHouseholdId())
       .order('name', { ascending: true });
     if (error) throw error;
     return data || [];
+  }
+
+  async function listRecipesByIds(ids) {
+    const unique = [...new Set((ids || []).map((id) => String(id || '')).filter(Boolean))];
+    if (!unique.length) return [];
+    const { data, error } = await getClient()
+      .from('recipes')
+      .select('id, name, ingredients')
+      .eq('household_id', requireHouseholdId())
+      .in('id', unique);
+    if (error) throw error;
+    return data || [];
+  }
+
+  async function spotlightRecipe() {
+    const { data, error } = await getClient()
+      .from('recipes')
+      .select('id, name, category')
+      .eq('household_id', requireHouseholdId())
+      .order('name', { ascending: true })
+      .limit(1);
+    if (error) throw error;
+    return (data && data[0]) || null;
+  }
+
+  async function getRecipeDetail(id) {
+    const { data, error } = await getClient()
+      .from('recipes')
+      .select('*')
+      .eq('household_id', requireHouseholdId())
+      .eq('id', id)
+      .maybeSingle();
+    if (error) throw error;
+    return data;
   }
 
   async function uploadPhoto(file) {
@@ -951,6 +987,9 @@
     addMember,
     removeMember,
     listRecipes,
+    listRecipesByIds,
+    spotlightRecipe,
+    getRecipeDetail,
     addRecipe,
     updateRecipe,
     deleteRecipe,
