@@ -288,14 +288,39 @@
     if (error) throw error;
   }
 
+  const RECIPE_LIST_COLUMNS = 'id, name, url, category, added_by, notes, ingredients, meal_types, tags, prep_minutes, servings';
+
   async function listRecipes() {
     const { data, error } = await getClient()
       .from('recipes')
-      .select('*')
+      .select(RECIPE_LIST_COLUMNS)
       .eq('household_id', requireHouseholdId())
       .order('name', { ascending: true });
     if (error) throw error;
     return data || [];
+  }
+
+  async function listRecipesByIds(ids) {
+    const unique = [...new Set((ids || []).map((id) => String(id || '')).filter(Boolean))];
+    if (!unique.length) return [];
+    const { data, error } = await getClient()
+      .from('recipes')
+      .select('id, name, ingredients')
+      .eq('household_id', requireHouseholdId())
+      .in('id', unique);
+    if (error) throw error;
+    return data || [];
+  }
+
+  async function getRecipeDetail(id) {
+    const { data, error } = await getClient()
+      .from('recipes')
+      .select('*')
+      .eq('household_id', requireHouseholdId())
+      .eq('id', id)
+      .maybeSingle();
+    if (error) throw error;
+    return data;
   }
 
   async function uploadPhoto(file) {
@@ -555,7 +580,26 @@
   const CHORE_WEEK = '1970-01-05';
 
   function emptyChoreBoard() {
-    return { kids: [], chores: [], checks: [], rewards: [], redemptions: [], reward: '' };
+    return { kids: [], chores: [], checks: [], rewards: [], redemptions: [], reward: '', tasks: [] };
+  }
+
+  function taskDue(value) {
+    const due = String(value || '');
+    return /^\d{4}-\d{2}-\d{2}$/.test(due) ? due : '';
+  }
+
+  function normalizeTask(task) {
+    if (!task || typeof task !== 'object') return null;
+    const title = String(task.title || '').trim();
+    if (!title || !task.id) return null;
+    return {
+      id: String(task.id),
+      title,
+      due: taskDue(task.due),
+      person: String(task.person || '').trim(),
+      done: Boolean(task.done),
+      created_at: task.created_at || ''
+    };
   }
 
   async function readChoreBoard() {
@@ -572,7 +616,8 @@
       checks: Array.isArray(board.checks) ? board.checks : [],
       rewards: Array.isArray(board.rewards) ? board.rewards : [],
       redemptions: Array.isArray(board.redemptions) ? board.redemptions : [],
-      reward: board.reward || ''
+      reward: board.reward || '',
+      tasks: (Array.isArray(board.tasks) ? board.tasks : []).map(normalizeTask).filter(Boolean)
     };
     if (C.HOUSEHOLD) C.HOUSEHOLD.chore_reward = next.reward;
     return next;
@@ -851,6 +896,43 @@
     return amounts;
   }
 
+  async function listTasks() {
+    const board = await readChoreBoard();
+    return board.tasks.slice().sort((a, b) => String(a.created_at || '').localeCompare(String(b.created_at || '')));
+  }
+
+  async function addTask(input) {
+    const title = String(input.title || '').trim();
+    if (!title) throw new Error('Task required');
+    const board = await readChoreBoard();
+    const task = {
+      id: newId(),
+      title,
+      due: taskDue(input.due),
+      person: String(input.person || '').trim(),
+      done: false,
+      created_at: new Date().toISOString()
+    };
+    board.tasks.push(task);
+    await writeChoreBoard(board);
+    return task;
+  }
+
+  async function setTaskDone(id, done) {
+    const board = await readChoreBoard();
+    const task = board.tasks.find((row) => row.id === id);
+    if (!task) throw new Error('Task not found');
+    task.done = Boolean(done);
+    await writeChoreBoard(board);
+    return task;
+  }
+
+  async function removeTask(id) {
+    const board = await readChoreBoard();
+    board.tasks = board.tasks.filter((task) => task.id !== id);
+    await writeChoreBoard(board);
+  }
+
   async function saveChoreReward(text) {
     const board = await readChoreBoard();
     board.reward = String(text || '').trim();
@@ -894,6 +976,8 @@
     addMember,
     removeMember,
     listRecipes,
+    listRecipesByIds,
+    getRecipeDetail,
     addRecipe,
     updateRecipe,
     deleteRecipe,
@@ -924,6 +1008,10 @@
     listRedemptions,
     addReward,
     removeReward,
-    redeemReward
+    redeemReward,
+    listTasks,
+    addTask,
+    setTaskDone,
+    removeTask
   };
 })(window);
