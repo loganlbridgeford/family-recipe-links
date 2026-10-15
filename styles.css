@@ -105,16 +105,18 @@ body.is-meal-dragging .app-main {
 
 .home-btn { flex: 0 0 auto; }
 
-.tab-bar[hidden] { display: none !important; }
-
-.app-version {
-  margin: 14px 0 0;
-  text-align: center;
-  font-size: 0.75rem;
-  font-weight: 650;
-  letter-spacing: 0.04em;
-  color: var(--text-muted);
+#header-home h1 {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
+
+#header-home [data-share-invite] {
+  flex: 0 0 auto;
+  white-space: nowrap;
+}
+
+.tab-bar[hidden] { display: none !important; }
 
 .home-grid {
   display: grid;
@@ -144,7 +146,46 @@ body.is-meal-dragging .app-main {
   cursor: pointer;
 }
 
-.home-tile:active { transform: scale(0.98); }
+button.home-tile:active { transform: scale(0.98); }
+
+.home-tile-today {
+  padding: 0;
+  cursor: default;
+}
+
+.home-tile-today .home-tile-hit,
+.home-tile-today .home-line {
+  appearance: none;
+  -webkit-appearance: none;
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  width: 100%;
+  margin: 0;
+  border: 0;
+  background: transparent;
+  text-align: left;
+  font-family: inherit;
+  color: inherit;
+  cursor: pointer;
+}
+
+.home-tile-today .home-tile-hit {
+  gap: 8px;
+  padding: 14px 14px 0;
+}
+
+.home-tile-today .home-line {
+  min-height: 44px;
+  padding: 0 14px;
+}
+
+.home-tile-today .home-line:last-child {
+  padding-bottom: 14px;
+}
+
+.home-tile-hit:active,
+.home-tile-today .home-line:active { transform: scale(0.98); }
 
 .home-kicker {
   font-size: 0.72rem;
