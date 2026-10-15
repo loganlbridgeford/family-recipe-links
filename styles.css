@@ -118,6 +118,15 @@ body.is-meal-dragging .app-main {
 
 .tab-bar[hidden] { display: none !important; }
 
+.home-banner {
+  display: block;
+  width: 100%;
+  height: auto;
+  margin: 0 0 12px;
+  border-radius: var(--radius);
+  background: var(--card);
+}
+
 .home-grid {
   display: grid;
   grid-template-columns: 1fr 1fr;
