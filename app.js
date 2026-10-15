@@ -35,9 +35,11 @@ const state = {
   tasks: [],
   todoView: 'kids',
   choresError: '',
-  homeRecipeId: null,
-  homeSnapshot: null
+  homeSnapshot: null,
+  recipesReady: false
 };
+
+let recipesRequest = null;
 
 let drag = null;
 let suppressClickUntil = 0;
@@ -141,6 +143,106 @@ function settleConfirm(value) {
 
 function getRecipe(id) {
   return state.recipes.find((r) => String(r.id) === String(id)) || null;
+}
+
+function collectRecipeIds(plan, snackAdds) {
+  const ids = new Set();
+  const push = (value) => {
+    if (value == null || value === '') return;
+    if (typeof value === 'object') {
+      if (value.type !== 'custom' && value.id != null && String(value.id) !== '') ids.add(String(value.id));
+      (value.sides || []).forEach(push);
+      return;
+    }
+    ids.add(String(value));
+  };
+  C.DAYS.forEach((day) => {
+    const row = plan && plan[day];
+    if (!row) return;
+    C.MEAL_SLOTS.forEach((slot) => push(row[slot]));
+  });
+  (snackAdds || []).forEach(push);
+  return [...ids];
+}
+
+function mergeRecipeRows(rows) {
+  (rows || []).forEach((row) => {
+    if (!row || row.id == null) return;
+    const idx = state.recipes.findIndex((item) => String(item.id) === String(row.id));
+    if (idx === -1) {
+      state.recipes.push(row);
+      return;
+    }
+    const next = Object.assign({}, state.recipes[idx]);
+    Object.keys(row).forEach((key) => {
+      if (row[key] !== undefined && row[key] !== null) next[key] = row[key];
+    });
+    state.recipes[idx] = next;
+  });
+}
+
+async function ensureRecipes() {
+  if (state.recipesReady) return state.recipes;
+  if (!recipesRequest) {
+    recipesRequest = DB.listRecipes().then((rows) => {
+      const previous = state.recipes;
+      state.recipes = (rows || []).map((row) => {
+        const prev = previous.find((item) => String(item.id) === String(row.id));
+        if (!prev || !prev.detailLoaded) return row;
+        return Object.assign({}, row, {
+          photo_url: prev.photo_url,
+          photo_url_back: prev.photo_url_back,
+          instructions: prev.instructions,
+          detailLoaded: true
+        });
+      });
+      state.recipesReady = true;
+      recipesRequest = null;
+      return state.recipes;
+    }).catch((err) => {
+      recipesRequest = null;
+      throw err;
+    });
+  }
+  return recipesRequest;
+}
+
+async function ensureRecipeDetail(id) {
+  const existing = getRecipe(id);
+  if (existing && existing.detailLoaded) return existing;
+  const detail = await DB.getRecipeDetail(id);
+  if (!detail) return existing;
+  const meal = Object.assign({}, existing || {}, detail, { detailLoaded: true });
+  const idx = state.recipes.findIndex((item) => String(item.id) === String(id));
+  if (idx === -1) state.recipes.push(meal);
+  else state.recipes[idx] = meal;
+  return meal;
+}
+
+async function loadHomeRecipes() {
+  const ids = collectRecipeIds(state.plan, state.snackAdds);
+  mergeRecipeRows(await DB.listRecipesByIds(ids));
+}
+
+function nudgeWaitingWorker(registration) {
+  if (registration.waiting) registration.waiting.postMessage('skip-waiting');
+}
+
+function registerShellWorker() {
+  if (!('serviceWorker' in navigator)) return;
+  navigator.serviceWorker.register('/sw.js').then((registration) => {
+    nudgeWaitingWorker(registration);
+    registration.addEventListener('updatefound', () => {
+      const installing = registration.installing;
+      if (!installing) return;
+      installing.addEventListener('statechange', () => {
+        if (installing.state === 'installed') nudgeWaitingWorker(registration);
+      });
+    });
+    registration.update();
+  }).catch((err) => {
+    console.error(err);
+  });
 }
 
 function isSnackAdd(id) {
@@ -434,10 +536,7 @@ function prefersReducedMotion() {
 function setTab(name) {
   const app = document.querySelector('.app');
   const enteringHome = name === 'home' && !(app && app.classList.contains('is-home'));
-  if (enteringHome) {
-    state.homeRecipeId = null;
-    state.homeSnapshot = null;
-  }
+  if (enteringHome) state.homeSnapshot = null;
   const apply = () => {
     document.querySelectorAll('.tab').forEach((tab) => {
       const on = tab.dataset.tab === name;
@@ -457,6 +556,19 @@ function setTab(name) {
     const tabBar = document.querySelector('.tab-bar');
     if (tabBar) tabBar.hidden = false;
     if (name === 'home') renderHome();
+    if (name === 'recipes' || name === 'plan' || name === 'grocery') {
+      ensureRecipes().then(() => {
+        const panel = document.getElementById(`panel-${name}`);
+        if (!panel || panel.hidden) return;
+        renderRecipeList();
+        renderSnackList();
+        if (name === 'plan') renderCalendar();
+        if (name === 'grocery') renderGrocery();
+      }).catch((err) => {
+        console.error(err);
+        showToast('Could not load recipes.');
+      });
+    }
   };
   if (document.startViewTransition && !prefersReducedMotion()) {
     document.startViewTransition(apply);
@@ -492,21 +604,6 @@ async function ensureHomeSnapshot() {
   const row = await DB.getPlan(monday);
   state.homeSnapshot = snapshotFromPlanRow(monday, row);
   return state.homeSnapshot;
-}
-
-function pickHomeRecipe() {
-  if (state.homeRecipeId) {
-    const existing = getRecipe(state.homeRecipeId);
-    if (existing) return existing;
-  }
-  const list = state.recipes.filter((recipe) => recipe && recipe.name);
-  if (!list.length) {
-    state.homeRecipeId = null;
-    return null;
-  }
-  const meal = list[Math.floor(Math.random() * list.length)];
-  state.homeRecipeId = meal.id;
-  return meal;
 }
 
 function mealPreviewBits(plan, day, slot) {
@@ -607,6 +704,40 @@ function todayTile(snap) {
   return `<div class="home-tile home-tile-today"><button type="button" class="home-tile-hit" data-home-go="plan"><span class="home-kicker">Today</span><span class="home-tile-title">${escapeHtml(dateLabel)}</span></button>${lines}</div>`;
 }
 
+function openHomeTasks() {
+  return sortedTasks().filter((task) => !task.done);
+}
+
+function homeTaskRow(task) {
+  const meta = taskMeta(task);
+  const overdue = Boolean(task.due && task.due < todayISODate());
+  return `<li class="home-task${overdue ? ' is-overdue' : ''}">
+    <label class="home-task-check">
+      <input type="checkbox" data-home-task="${escapeHtml(task.id)}" aria-label="${escapeHtml(task.title)}">
+      <span>
+        <span class="home-task-title">${escapeHtml(task.title)}</span>
+        ${meta ? `<span class="home-task-meta">${escapeHtml(meta)}</span>` : ''}
+      </span>
+    </label>
+  </li>`;
+}
+
+function homeTasksTile() {
+  const shown = openHomeTasks().slice(0, 4);
+  const list = shown.length
+    ? `<ul class="home-task-list">${shown.map(homeTaskRow).join('')}</ul>`
+    : '<p class="home-task-empty">Nothing open</p>';
+  return `<div class="home-tile home-tile-tasks">
+    <span class="home-kicker">Tasks</span>
+    ${list}
+    <button type="button" class="home-task-more" data-home-go="tasks">See all</button>
+    <form class="home-task-add" id="homeAddTaskForm">
+      <input type="text" name="title" size="8" placeholder="Add a task" autocomplete="off" enterkeyhint="done" aria-label="Task" required>
+      <button type="submit" class="btn btn-primary" aria-label="Add task">+</button>
+    </form>
+  </div>`;
+}
+
 function paintHome(snap) {
   const grid = document.getElementById('homeGrid');
   if (!grid) return;
@@ -614,11 +745,6 @@ function paintHome(snap) {
   const pointsEl = document.getElementById('homePoints');
   if (pointsEl) pointsEl.textContent = `${points} point${points === 1 ? '' : 's'}`;
   const pointLabel = `${points} point${points === 1 ? '' : 's'}`;
-  const recipe = pickHomeRecipe();
-  const photo = recipe ? safeHttpUrl(recipe.photo_url) : '';
-  const recipeBody = recipe
-    ? `${photo ? `<img class="home-tile-photo" src="${escapeHtml(photo)}" alt="">` : ''}<span class="home-tile-title">${escapeHtml(recipe.name)}</span><span class="home-note">${escapeHtml(recipe.category || 'Recipe')}</span>`
-    : '<span class="home-tile-title">Add a recipe</span><span class="home-note">Nothing in the kitchen yet.</span>';
   const groceryLines = snap ? uncheckedGroceryLines(snap) : [];
   const groceryShown = groceryLines.slice(0, 4);
   const groceryBody = groceryShown.length
@@ -634,7 +760,7 @@ function paintHome(snap) {
       : `<span class="home-points-figure">${escapeHtml(pointLabel)}</span><span class="home-line">${chores.due} due today</span>${taskLine}<span class="home-note">${escapeHtml(waitingNote)}</span>`;
   grid.innerHTML = [
     todayTile(snap),
-    homeTile('Recipe', recipeBody, recipe ? 'recipe' : 'recipes'),
+    homeTasksTile(),
     homeTile('Grocery', groceryBody, 'grocery'),
     homeTile('To Do', choreBody, 'chores')
   ].join('');
@@ -835,7 +961,14 @@ function renderCalendar() {
   renderHomeIfVisible();
 }
 
-function openPicker(day, slot, opts = {}) {
+async function openPicker(day, slot, opts = {}) {
+  try {
+    await ensureRecipes();
+  } catch (err) {
+    console.error(err);
+    showToast('Could not load recipes.');
+    return;
+  }
   const asSide = !!opts.asSide;
   state.pickerContext = { day, slot, asSide };
   state.pickerCategory = 'All';
@@ -978,7 +1111,7 @@ async function addCustomMeal() {
         meal_types: [],
         tags: []
       });
-      state.recipes.push(created);
+      state.recipes.push(Object.assign({}, created, { detailLoaded: true }));
       state.recipes.sort((a, b) => a.name.localeCompare(b.name));
       renderRecipeList();
       assignPickerValue(created.id);
@@ -1324,8 +1457,15 @@ function previewSuggestions() {
 
 /* ---------- Recipe detail / assign ---------- */
 
-function openRecipeCard(mealId, context = {}) {
-  const meal = getRecipe(mealId);
+async function openRecipeCard(mealId, context = {}) {
+  let meal = getRecipe(mealId);
+  try {
+    meal = await ensureRecipeDetail(mealId);
+  } catch (err) {
+    console.error(err);
+    showToast('Could not open that recipe.');
+    return;
+  }
   if (!meal) return;
   document.getElementById('recipeTitle').textContent = meal.name;
   const tags = (meal.tags || []).slice(0, 4).map((t) => C.TAG_LABELS[t] || t).join(' · ');
@@ -2011,7 +2151,19 @@ function closeRecipeFormSheet() {
   if (modal.open) modal.close();
 }
 
-function openEditForm(meal) {
+async function openEditForm(meal) {
+  let source = meal;
+  if (!meal.detailLoaded) {
+    try {
+      source = await ensureRecipeDetail(meal.id);
+    } catch (err) {
+      console.error(err);
+      showToast('Could not open that recipe.');
+      return;
+    }
+  }
+  if (!source) return;
+  meal = source;
   setTab('recipes');
   document.getElementById('recipeEditId').value = meal.id;
   document.getElementById('recipeFormTitle').textContent = 'Edit Recipe';
@@ -2084,10 +2236,10 @@ async function handleSaveRecipe(e) {
       payload.photo_url_back = existing?.photo_url_back || null;
       const updated = await DB.updateRecipe(editId, payload, front, back);
       const idx = state.recipes.findIndex((r) => String(r.id) === String(editId));
-      if (idx >= 0) state.recipes[idx] = updated;
+      if (idx >= 0) state.recipes[idx] = Object.assign({}, updated, { detailLoaded: true });
     } else {
       const created = await DB.addRecipe(payload, front, back);
-      state.recipes.push(created);
+      state.recipes.push(Object.assign({}, created, { detailLoaded: true }));
       state.recipes.sort((a, b) => a.name.localeCompare(b.name));
     }
     resetRecipeForm();
@@ -2143,6 +2295,11 @@ async function handleDeleteRecipe(id) {
 
 function renderRecipeList() {
   const container = document.getElementById('recipesContainer');
+  if (!container) return;
+  if (!state.recipesReady) {
+    container.innerHTML = '';
+    return;
+  }
   let list = [...state.recipes];
   if (state.categoryFilter !== 'All') {
     list = list.filter((r) => (r.category || 'Other') === state.categoryFilter);
@@ -3140,15 +3297,6 @@ async function handleGateCreate() {
 
 async function loadAppData() {
   try {
-    state.recipes = await DB.listRecipes();
-  } catch (err) {
-    console.error(err);
-    showToast('Could not load recipes. Check the SQL migration ran.');
-    document.getElementById('recipesContainer').innerHTML =
-      '<div class="empty-state"><p>Could not load recipes. Confirm the household SQL ran in Supabase.</p></div>';
-  }
-
-  try {
     const members = await DB.listMembers();
     state.members = members && members.length ? members : [{ display_name: 'Me', sort_order: 1 }];
   } catch (err) {
@@ -3157,7 +3305,6 @@ async function loadAppData() {
   }
 
   populateMemberSelect();
-  renderRecipeList();
   try {
     await loadChores();
   } catch (err) {
@@ -3170,6 +3317,11 @@ async function loadAppData() {
     showToast('Could not load this week’s plan.');
     renderCalendar();
     renderGrocery();
+  }
+  try {
+    await loadHomeRecipes();
+  } catch (err) {
+    console.error(err);
   }
   renderHomeIfVisible();
 }
@@ -3564,6 +3716,7 @@ async function changeWeek(offsetDays) {
 }
 
 async function init() {
+  registerShellWorker();
   renderTypeChips([]);
   renderTagChips([]);
   addIngredientRow();
@@ -3594,13 +3747,40 @@ async function init() {
       });
       return;
     }
-    if (go === 'recipe') {
-      const meal = state.homeRecipeId && getRecipe(state.homeRecipeId);
-      if (meal) openRecipeCard(meal.id, { fromLibrary: true });
-      else setTab('recipes');
+    if (go === 'tasks') {
+      state.todoView = 'tasks';
+      applyTodoView();
+      setTab('chores');
       return;
     }
-    if (go === 'recipes' || go === 'chores') setTab(go);
+    if (go === 'chores') setTab(go);
+  });
+  document.getElementById('homeGrid').addEventListener('change', async (event) => {
+    const box = event.target.closest('[data-home-task]');
+    if (!box) return;
+    try {
+      await DB.setTaskDone(box.dataset.homeTask, box.checked);
+      await loadChores();
+    } catch (err) {
+      console.error(err);
+      box.checked = false;
+      showToast('Could not update that task.');
+    }
+  });
+  document.getElementById('homeGrid').addEventListener('submit', async (event) => {
+    const form = event.target.closest('#homeAddTaskForm');
+    if (!form) return;
+    event.preventDefault();
+    const title = form.elements.title.value.trim();
+    if (!title) return;
+    try {
+      await DB.addTask({ title, due: '', person: '' });
+      form.elements.title.value = '';
+      await loadChores();
+    } catch (err) {
+      console.error(err);
+      showToast('Could not add that task.');
+    }
   });
   document.getElementById('addMemberForm').addEventListener('submit', handleAddMember);
   document.getElementById('memberList').addEventListener('click', (event) => {
@@ -3879,7 +4059,14 @@ async function init() {
     openRecipeFormSheet();
   });
   document.getElementById('closeRecipeFormBtn').addEventListener('click', closeRecipeFormSheet);
-  document.getElementById('snacksBtn').addEventListener('click', () => {
+  document.getElementById('snacksBtn').addEventListener('click', async () => {
+    try {
+      await ensureRecipes();
+    } catch (err) {
+      console.error(err);
+      showToast('Could not load recipes.');
+      return;
+    }
     document.getElementById('snackSearch').value = '';
     renderSnackList();
     document.getElementById('snacksModal').showModal();
