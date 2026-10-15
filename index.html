@@ -17,10 +17,12 @@
   <div class="app is-home">
     <header class="app-header">
       <div class="header-pane" id="header-home">
+        <button type="button" class="btn btn-ghost btn-sm home-btn" data-go-home>Home</button>
         <div class="header-titles">
           <h1 data-household-name>Family</h1>
           <span class="household-label" id="homePoints">0 points</span>
         </div>
+        <button type="button" class="btn btn-secondary btn-sm" id="homeInviteBtn" data-share-invite>Invite family</button>
       </div>
       <div class="header-pane" id="header-plan" hidden>
         <button type="button" class="btn btn-ghost btn-sm home-btn" data-go-home>Home</button>
@@ -62,7 +64,6 @@
       <section class="panel active" id="panel-home">
         <img class="home-banner" src="family-banner.webp?v=app-shell-19" alt="Bridgeford family" width="1200" height="675">
         <div class="home-grid" id="homeGrid"></div>
-        <p class="app-version">app-shell-19</p>
       </section>
 
       <section class="panel" id="panel-plan" role="tabpanel" hidden>
@@ -211,7 +212,7 @@
     </div>
     <div class="sheet-body">
       <p class="hint" id="planHouseholdHint"></p>
-      <button type="button" class="btn btn-secondary btn-block" id="shareInviteBtn">Invite family</button>
+      <button type="button" class="btn btn-secondary btn-block" id="shareInviteBtn" data-share-invite>Invite family</button>
       <button type="button" class="btn btn-ghost btn-block" id="copyInviteBtn">Copy invite link</button>
       <form id="addMemberForm" class="member-add">
         <label for="memberNameInput">People in this family</label>
