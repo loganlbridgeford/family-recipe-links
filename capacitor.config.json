@@ -1,0 +1,11 @@
+{
+  "appId": "com.bridgeford.familyplanner",
+  "appName": "Family Planner",
+  "webDir": "www",
+  "ios": {
+    "contentInset": "never",
+    "preferredContentMode": "mobile",
+    "scrollEnabled": true,
+    "backgroundColor": "#f4f1ea"
+  }
+}
