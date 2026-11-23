@@ -1,6 +1,8 @@
 name: Supabase keep-alive
 
 on:
+  push:
+    branches: [cursor/supabase-keepalive-1c42]
   schedule:
     # Days 1, 3, 5, ... so the gap stays under the 7-day free-tier pause.
     - cron: '17 12 */2 * *'
